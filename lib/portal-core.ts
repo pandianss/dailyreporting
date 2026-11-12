@@ -40,6 +40,7 @@ export interface ModelHelpers {
   validateEntry: (input: any, snapshot: any, campaigns: any[], date: string) => any;
   validateRepayments: (rows: any[], branches: Branch[]) => any[];
   repaymentsDueInNextDays: (repayments: any[], date: string, days?: number) => any[];
+  validateDirectory: (rows: any[], branches: Branch[], adminMobile?: string) => any[];
 }
 
 export class HttpError extends Error {
@@ -655,6 +656,41 @@ export async function handlePortalPost(
         completedAt: completed ? now : null,
         completedBy: completed ? auth.user.email : null,
       });
+    } else if (action === 'upload-directory') {
+      requireAdmin();
+      const validated = model.validateDirectory(body.rows, branches, adminMobile);
+      const existingAccounts = await store.list('account:');
+      const byPhone = new Map(existingAccounts.map((a: any) => [a.phone, a]));
+      const ops: Array<{ type: 'put'; key: string; value: any }> = [];
+      for (const entry of validated) {
+        if (entry.sol && entry.name && entry.role !== 'none') {
+          ops.push({
+            type: 'put',
+            key: 'contact:' + entry.sol,
+            value: { sol: entry.sol, name: entry.name, phone: entry.phone },
+          });
+        }
+        if (entry.email) {
+          const old = byPhone.get(entry.phone);
+          ops.push({
+            type: 'put',
+            key: 'account:' + entry.phone,
+            value: {
+              phone: entry.phone,
+              email: entry.email,
+              role: entry.role,
+              sol: entry.role === 'branch' ? entry.sol : null,
+              version: (old?.version || 0) + 1,
+              ...(old?.email === entry.email && old?.hash
+                ? { hash: old.hash, salt: old.salt }
+                : {}),
+            },
+          });
+        }
+      }
+      for (let i = 0; i < ops.length; i += 200) {
+        await store.batch(ops.slice(i, i + 200));
+      }
     } else if (action === 'retry') {
       requireAdmin();
       if (!String(body.key || '').startsWith('out:')) {

@@ -381,5 +381,29 @@ assert.equal(cif100.completed, true);
 assert.equal(cif100.completedBy, 'bm0174@iob.in');
 count += 4;
 
+// 12. Bulk branch directory CSV upload
+const dirCSV = [
+  'sol,branch_name,head_name,phone,email,role',
+  '0175,Ayakudi,Karthik Raja,9876543210,bm0175@iob.in,branch',
+  '0176,Cumbum,,,,branch', // blank row in 56-branch template should be skipped
+  ',,Regional Desk,9876543211,desk2@iob.in,reviewer',
+].join('\n');
+const parsedDir = model.validateDirectory(model.parseDirectoryCSV(dirCSV), branches, config.adminMobile);
+assert.equal(parsedDir.length, 2);
+assert.equal(parsedDir[0].sol, '0175');
+assert.equal(parsedDir[0].phone, '919876543210');
+assert.equal(parsedDir[1].role, 'reviewer');
+count += 4;
+
+assert.equal(
+  (await portalPost(date, { action: 'upload-directory', rows: parsedDir })).status,
+  200
+);
+const adminViewAfterDir = await portalGet(date, 'owner');
+assert.ok(adminViewAfterDir.body.contacts.find((c) => c.sol === '0175' && c.name === 'Karthik Raja'));
+assert.ok(adminViewAfterDir.body.grants.find((g) => g.phone === '919876543210' && g.sol === '0175'));
+assert.ok(adminViewAfterDir.body.grants.find((g) => g.phone === '919876543211' && g.role === 'reviewer'));
+count += 4;
+
 await unlink('tests/.portal-core.mjs');
 console.log(count + ' Firebase portal checks passed: __session cookie, Mobile+PIN auth, admin bootstrap, Firestore store contract, rate-limit lockout, reset, sanctions, SRM direction, and revocation.');
