@@ -91,6 +91,10 @@ app.post('/api/portal', async (req, res) => {
   res.set('Cache-Control', 'no-store').status(result.status).json(result.body);
 });
 
+app.use((err: any, _req: express.Request, res: express.Response, _next: express.NextFunction) => {
+  res.set('Cache-Control', 'no-store').status(err?.status || 400).json({ error: err?.message || 'Invalid request' });
+});
+
 export const api = onRequest(
   {
     region: 'asia-south1',
