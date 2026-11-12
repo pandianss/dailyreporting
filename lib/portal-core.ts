@@ -151,7 +151,8 @@ export async function authenticateRequest(store: Store, config: PortalConfig, co
   }
   return {
     user: {
-      email: account.email as string,
+      name: (account.name || '') as string,
+      email: (account.email || '') as string,
       phone: account.phone as string,
       role: account.role as Role,
       sol: (account.sol ?? null) as string | null,
@@ -434,20 +435,22 @@ export async function handlePortalPost(
       if (phone === adminMobile) {
         throw new Error('The administrator account is reserved');
       }
+      const rawEmail = String(body.email || '').trim().toLowerCase();
+      const rawName = String(body.name || '').trim().slice(0, 100);
       if (
-        !/^[^@\s]+@[^@\s]+\.[^@\s]+$/.test(body.email) ||
+        (rawEmail && !/^[^@\s]+@[^@\s]+\.[^@\s]+$/.test(rawEmail)) ||
         !['branch', 'reviewer', 'srm', 'none'].includes(body.role)
       ) {
-        throw new Error('Valid email and role required');
+        throw new Error('Valid role (and valid email if provided) required');
       }
       if (body.role === 'branch' && !branches.find((b) => b.sol === body.sol)) {
         throw new Error('Select a branch');
       }
-      const email = String(body.email).toLowerCase();
       const old = await store.get('account:' + phone);
       await store.put('account:' + phone, {
         phone,
-        email,
+        name: rawName || old?.name || '',
+        email: rawEmail,
         role: body.role,
         sol:
           body.role === 'branch'
@@ -456,7 +459,9 @@ export async function handlePortalPost(
               ? '3933'
               : null,
         version: (old?.version || 0) + 1,
-        ...(old?.email === email && old?.hash ? { hash: old.hash, salt: old.salt } : {}),
+        ...((old?.email || '') === rawEmail && old?.hash
+          ? { hash: old.hash, salt: old.salt }
+          : {}),
       });
     } else if (action === 'reset-pin') {
       requireAdmin();
@@ -655,11 +660,12 @@ export async function handlePortalPost(
         throw new Error('Repayment account not found');
       }
       const completed = Boolean(body.completed);
+      const actor = auth.user.name || auth.user.email || auth.user.phone.slice(2);
       await store.put(key, {
         ...current,
         completed,
         completedAt: completed ? now : null,
-        completedBy: completed ? auth.user.email : null,
+        completedBy: completed ? actor : null,
       });
     } else if (action === 'upload-directory') {
       requireAdmin();
@@ -675,28 +681,28 @@ export async function handlePortalPost(
             value: { sol: entry.sol, name: entry.name, phone: entry.phone },
           });
         }
-        if (entry.email) {
-          const old = byPhone.get(entry.phone);
-          ops.push({
-            type: 'put',
-            key: 'account:' + entry.phone,
-            value: {
-              phone: entry.phone,
-              email: entry.email,
-              role: entry.role,
-              sol:
-                entry.role === 'branch'
-                  ? entry.sol
-                  : entry.role === 'reviewer' || entry.role === 'srm'
-                    ? entry.sol || '3933'
-                    : null,
-              version: (old?.version || 0) + 1,
-              ...(old?.email === entry.email && old?.hash
-                ? { hash: old.hash, salt: old.salt }
-                : {}),
-            },
-          });
-        }
+        const old = byPhone.get(entry.phone);
+        const nextEmail = entry.email || '';
+        ops.push({
+          type: 'put',
+          key: 'account:' + entry.phone,
+          value: {
+            phone: entry.phone,
+            name: entry.name || old?.name || '',
+            email: nextEmail,
+            role: entry.role,
+            sol:
+              entry.role === 'branch'
+                ? entry.sol
+                : entry.role === 'reviewer' || entry.role === 'srm'
+                  ? entry.sol || '3933'
+                  : null,
+            version: (old?.version || 0) + 1,
+            ...((old?.email || '') === nextEmail && old?.hash
+              ? { hash: old.hash, salt: old.salt }
+              : {}),
+          },
+        });
       }
       for (let i = 0; i < ops.length; i += 200) {
         await store.batch(ops.slice(i, i + 200));

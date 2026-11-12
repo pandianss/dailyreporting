@@ -381,23 +381,24 @@ assert.equal(cif100.completed, true);
 assert.equal(cif100.completedBy, 'bm0174@iob.in');
 count += 4;
 
-// 12. Bulk branch directory CSV upload (including SOL 3933 Regional Office for SRM & Reviewers)
+// 12. Bulk branch directory CSV upload (including SOL 3933 Regional Office, email optional)
 const dirCSV = [
   'sol,branch_name,head_name,phone,email,role',
-  '0175,Ayakudi,Karthik Raja,9876543210,bm0175@iob.in,branch',
+  '0175,Ayakudi,Karthik Raja,9876543210,,branch',
   '0176,Cumbum,,,,branch', // blank row in 56-branch template should be skipped
-  '3933,Regional Office,Regional Desk,9876543211,desk2@iob.in,reviewer',
+  '3933,Regional Office,Regional Desk,9876543211,,reviewer',
   '3933,Regional Office,SRM Head,9876543212,srm2@iob.in,srm',
 ].join('\n');
 const parsedDir = model.validateDirectory(model.parseDirectoryCSV(dirCSV), branches, config.adminMobile);
 assert.equal(parsedDir.length, 3);
 assert.equal(parsedDir[0].sol, '0175');
 assert.equal(parsedDir[0].phone, '919876543210');
+assert.equal(parsedDir[0].email, '');
 assert.equal(parsedDir[1].role, 'reviewer');
 assert.equal(parsedDir[1].sol, '3933');
 assert.equal(parsedDir[2].role, 'srm');
 assert.equal(parsedDir[2].sol, '3933');
-count += 6;
+count += 7;
 
 assert.throws(
   () =>
@@ -417,10 +418,13 @@ assert.equal(
 const adminViewAfterDir = await portalGet(date, 'owner');
 assert.ok(adminViewAfterDir.body.contacts.find((c) => c.sol === '0175' && c.name === 'Karthik Raja'));
 assert.equal(adminViewAfterDir.body.contacts.find((c) => c.sol === '3933'), undefined);
-assert.ok(adminViewAfterDir.body.grants.find((g) => g.phone === '919876543210' && g.sol === '0175'));
+assert.ok(adminViewAfterDir.body.grants.find((g) => g.phone === '919876543210' && g.sol === '0175' && g.name === 'Karthik Raja'));
 assert.ok(adminViewAfterDir.body.grants.find((g) => g.phone === '919876543211' && g.role === 'reviewer' && g.sol === '3933'));
 assert.ok(adminViewAfterDir.body.grants.find((g) => g.phone === '919876543212' && g.role === 'srm' && g.sol === '3933'));
-count += 5;
+// Branch head uploaded without email can set up PIN and log in
+assert.equal((await authPost({ action: 'setup', phone: '9876543210', pin: '6428', confirm: '6428' }, 'bm0175')).status, 200);
+assert.equal((await portalGet(date, 'bm0175')).body.user.sol, '0175');
+count += 7;
 
 await unlink('tests/.portal-core.mjs');
 console.log(count + ' Firebase portal checks passed: __session cookie, Mobile+PIN auth, admin bootstrap, Firestore store contract, rate-limit lockout, reset, sanctions, SRM direction, and revocation.');
