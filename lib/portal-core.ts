@@ -38,6 +38,8 @@ export interface ModelHelpers {
   cutoffs: (date: string) => { yesterday: string; prior: string; first: boolean; april: boolean };
   validateSnapshot: (rows: any[], branches: Branch[], campaigns: any[], date: string) => any[];
   validateEntry: (input: any, snapshot: any, campaigns: any[], date: string) => any;
+  validateRepayments: (rows: any[], branches: Branch[]) => any[];
+  repaymentsDueInNextDays: (repayments: any[], date: string, days?: number) => any[];
 }
 
 export class HttpError extends Error {
@@ -354,6 +356,11 @@ export async function handlePortalGet(
     }
 
     const campaigns = await store.list('campaign:');
+    const rawRepayments =
+      auth.user.role === 'branch'
+        ? await store.list('repay:' + auth.user.sol + ':')
+        : await store.list('repay:');
+    const repayments = model.repaymentsDueInNextDays(rawRepayments, date, 3);
     const contacts = auth.user.role === 'admin' ? await store.list('contact:') : [];
     const grants =
       auth.user.role === 'admin'
@@ -373,6 +380,7 @@ export async function handlePortalGet(
         subs,
         reviews,
         campaigns,
+        repayments,
         contacts,
         grants,
         jobs,
@@ -596,6 +604,57 @@ export async function handlePortalPost(
         },
       ]);
       await sendOutboxJob(store, config, key);
+    } else if (action === 'upload-repayments') {
+      requireAdmin();
+      const validated = model.validateRepayments(body.rows, branches);
+      const existing = await store.list('repay:');
+      const existingByKey = new Map(existing.map((x: any) => [x.key, x]));
+      const nextKeys = new Set(validated.map((r: any) => 'repay:' + r.sol + ':' + r.id));
+      const ops: Array<{ type: 'put'; key: string; value: any } | { type: 'del'; key: string }> = [];
+      for (const old of existing) {
+        if (!nextKeys.has(old.key)) {
+          ops.push({ type: 'del', key: old.key });
+        }
+      }
+      for (const row of validated) {
+        const key = 'repay:' + row.sol + ':' + row.id;
+        const prev = existingByKey.get(key);
+        ops.push({
+          type: 'put',
+          key,
+          value: {
+            ...row,
+            completed: Boolean(prev?.completed),
+            completedAt: prev?.completed ? prev.completedAt : null,
+            completedBy: prev?.completed ? prev.completedBy : null,
+            uploadedAt: now,
+            uploadedBy: auth.user.email,
+          },
+        });
+      }
+      for (let i = 0; i < ops.length; i += 200) {
+        await store.batch(ops.slice(i, i + 200));
+      }
+    } else if (action === 'repayment-status') {
+      if (auth.user.role === 'reviewer' || auth.user.role === 'srm') {
+        throw new Error('Only branch heads or administrator can update repayment status');
+      }
+      const sol = auth.user.role === 'branch' ? auth.user.sol : body.sol;
+      if (!branches.find((b) => b.sol === sol) || !String(body.id || '').trim()) {
+        throw new Error('Valid branch and repayment account required');
+      }
+      const key = 'repay:' + sol + ':' + String(body.id).trim();
+      const current = await store.get(key);
+      if (!current) {
+        throw new Error('Repayment account not found');
+      }
+      const completed = Boolean(body.completed);
+      await store.put(key, {
+        ...current,
+        completed,
+        completedAt: completed ? now : null,
+        completedBy: completed ? auth.user.email : null,
+      });
     } else if (action === 'retry') {
       requireAdmin();
       if (!String(body.key || '').startsWith('out:')) {

@@ -309,5 +309,77 @@ assert.equal(
 );
 count += 2;
 
+// 11. Repayments due in next 3 days + branch completion
+const repayCSV = [
+  'Branch Code,CIF,Account Name,Due Amount,Due Date',
+  '174,CIF100,Ramesh Kumar,45000,12/11/2026',
+  '0174,CIF101,Sita Devi,12000,2026-11-15',
+  '0174,CIF102,Past Due,9000,2026-11-11',
+  '0174,CIF103,Future Due,9000,2026-11-16',
+  '0376,CIF200,Palani Traders,80000,2026-11-13',
+].join('\n');
+const parsedRepay = model.validateRepayments(model.parseRepaymentsCSV(repayCSV), branches);
+assert.equal(parsedRepay.length, 5);
+assert.equal(parsedRepay[0].sol, '0174');
+assert.equal(parsedRepay[0].due_date, '2026-11-12');
+count += 3;
+
+assert.equal(
+  (await portalPost(date, { action: 'upload-repayments', rows: parsedRepay })).status,
+  200
+);
+count++;
+
+// Re-enroll branch 0174 after reset-pin earlier
+assert.equal(
+  (await authPost({ action: 'setup', phone: '9000000001', pin: '7351', confirm: '7351' }, 'branch3')).status,
+  200
+);
+count++;
+
+const branchRepayView = await portalGet(date, 'branch3');
+assert.equal(branchRepayView.body.repayments.length, 2);
+assert.equal(branchRepayView.body.repayments[0].cif, 'CIF100');
+assert.equal(branchRepayView.body.repayments[1].cif, 'CIF101');
+count += 3;
+
+// SRM cannot mark repayment complete
+assert.equal(
+  (
+    await portalPost(
+      date,
+      { action: 'repayment-status', sol: '0174', id: parsedRepay[0].id, completed: true },
+      'srm'
+    )
+  ).status,
+  400
+);
+count++;
+
+// Branch head marks repayment complete
+assert.equal(
+  (
+    await portalPost(
+      date,
+      { action: 'repayment-status', sol: '0174', id: parsedRepay[0].id, completed: true },
+      'branch3'
+    )
+  ).status,
+  200
+);
+count++;
+
+// Re-uploading list preserves completed status
+assert.equal(
+  (await portalPost(date, { action: 'upload-repayments', rows: parsedRepay })).status,
+  200
+);
+const afterReupload = await portalGet(date, 'srm');
+assert.equal(afterReupload.body.repayments.length, 3);
+const cif100 = afterReupload.body.repayments.find((r) => r.cif === 'CIF100');
+assert.equal(cif100.completed, true);
+assert.equal(cif100.completedBy, 'bm0174@iob.in');
+count += 4;
+
 await unlink('tests/.portal-core.mjs');
 console.log(count + ' Firebase portal checks passed: __session cookie, Mobile+PIN auth, admin bootstrap, Firestore store contract, rate-limit lockout, reset, sanctions, SRM direction, and revocation.');
