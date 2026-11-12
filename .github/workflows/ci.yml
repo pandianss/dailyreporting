@@ -1,0 +1,24 @@
+name: Validate portal
+on:
+  push:
+    branches: [main]
+  pull_request:
+  workflow_dispatch:
+permissions:
+  contents: read
+jobs:
+  validate:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+      - run: npm ci --no-audit --no-fund
+      - run: npm --prefix functions ci --no-audit --no-fund
+      - run: node tests/firebase-portal.mjs
+      - run: node tests/portal.mjs
+      - run: npm run build:firebase
+      - run: npm run build

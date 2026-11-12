@@ -1,0 +1,11 @@
+rules_version = '2';
+
+service cloud.firestore {
+  match /databases/{database}/documents {
+    // All portal data and authentication records are accessed exclusively
+    // through authenticated Cloud Functions using the Firebase Admin SDK.
+    match /{document=**} {
+      allow read, write: if false;
+    }
+  }
+}

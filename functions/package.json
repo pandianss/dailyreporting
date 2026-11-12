@@ -1,0 +1,23 @@
+{
+  "name": "dailyreporting-functions",
+  "type": "module",
+  "main": "lib/index.js",
+  "scripts": {
+    "build": "node sync-shared.mjs && tsc && node sync-shared.mjs --post",
+    "serve": "npm run build && firebase emulators:start --only functions,firestore,hosting",
+    "logs": "firebase functions:log"
+  },
+  "engines": {
+    "node": "22"
+  },
+  "dependencies": {
+    "express": "^4.21.2",
+    "firebase-admin": "^13.0.2",
+    "firebase-functions": "^6.3.2"
+  },
+  "devDependencies": {
+    "@types/express": "^5.0.0",
+    "typescript": "^5.7.3"
+  },
+  "private": true
+}
