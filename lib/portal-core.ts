@@ -449,7 +449,12 @@ export async function handlePortalPost(
         phone,
         email,
         role: body.role,
-        sol: body.role === 'branch' ? body.sol : null,
+        sol:
+          body.role === 'branch'
+            ? body.sol
+            : body.role === 'reviewer' || body.role === 'srm'
+              ? '3933'
+              : null,
         version: (old?.version || 0) + 1,
         ...(old?.email === email && old?.hash ? { hash: old.hash, salt: old.salt } : {}),
       });
@@ -663,7 +668,7 @@ export async function handlePortalPost(
       const byPhone = new Map(existingAccounts.map((a: any) => [a.phone, a]));
       const ops: Array<{ type: 'put'; key: string; value: any }> = [];
       for (const entry of validated) {
-        if (entry.sol && entry.name && entry.role !== 'none') {
+        if (entry.sol && entry.sol !== '3933' && entry.name && entry.role !== 'none') {
           ops.push({
             type: 'put',
             key: 'contact:' + entry.sol,
@@ -679,7 +684,12 @@ export async function handlePortalPost(
               phone: entry.phone,
               email: entry.email,
               role: entry.role,
-              sol: entry.role === 'branch' ? entry.sol : null,
+              sol:
+                entry.role === 'branch'
+                  ? entry.sol
+                  : entry.role === 'reviewer' || entry.role === 'srm'
+                    ? entry.sol || '3933'
+                    : null,
               version: (old?.version || 0) + 1,
               ...(old?.email === entry.email && old?.hash
                 ? { hash: old.hash, salt: old.salt }
