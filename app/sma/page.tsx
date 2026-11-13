@@ -187,8 +187,6 @@ export default function SmaPortal() {
       if (j.user.role === 'branch') {
         setSol(j.user.sol);
         setTab((curr) => curr === 'Overview' ? 'Repayment follow-up' : curr);
-      } else if (!sol && j.branches.length) {
-        setSol(j.branches[0].sol);
       }
     } catch (e: any) {
       if (!isSilent) setError(e.message);
@@ -1878,6 +1876,7 @@ export default function SmaPortal() {
                       onChange={(e) => setSol(e.target.value)}
                       style={{ padding: '8px 12px', borderRadius: 8, border: '1px solid #cbd5e1', fontSize: 13 }}
                     >
+                      <option value="">All 56 Branches (Region Overview)</option>
                       {data.branches.map((b: any) => (
                         <option key={b.sol} value={b.sol}>
                           {b.sol} · {b.name}
@@ -2158,7 +2157,7 @@ export default function SmaPortal() {
                                         </a>
                                         <a
                                           href={`https://wa.me/${waMobile}?text=${encodeURIComponent(
-                                            `Indian Overseas Bank ${currentBranch?.name || ''} Branch:\nDear ${grp.account_name},\nYour loan repayment of ₹${fmt(
+                                            `Indian Overseas Bank ${data.branches.find((b: any) => b.sol === grp.sol)?.name || currentBranch?.name || ''} Branch:\nDear ${grp.account_name},\nYour loan repayment of ₹${fmt(
                                               grp.totalDue
                                             )} is due for repayment ${isCifDueToday ? 'TODAY (' + date + ')' : 'shortly'}. Please deposit the amount to keep your account standard and prevent SMA classification.\nThank you.`
                                           )}`}
@@ -2183,7 +2182,7 @@ export default function SmaPortal() {
                                         </a>
                                         <a
                                           href={`sms:${callMobile}?body=${encodeURIComponent(
-                                            `IOB ${currentBranch?.name || ''}: Dear ${grp.account_name}, loan repayment of ₹${fmt(
+                                            `IOB ${data.branches.find((b: any) => b.sol === grp.sol)?.name || currentBranch?.name || ''}: Dear ${grp.account_name}, loan repayment of ₹${fmt(
                                               grp.totalDue
                                             )} is due ${isCifDueToday ? 'TODAY' : 'shortly'}. Please ensure payment to keep your account standard.`
                                           )}`}
@@ -2359,7 +2358,7 @@ export default function SmaPortal() {
                                               <a
                                                 className="secondary button"
                                                 href={`https://wa.me/${grp.mobile ? (grp.mobile.startsWith('91') ? grp.mobile : '91' + grp.mobile) : ''}?text=${encodeURIComponent(
-                                                  `Indian Overseas Bank ${currentBranch?.name || ''} Branch: Dear ${r.account_name}, your loan installment of ₹${fmt(
+                                                  `Indian Overseas Bank ${data.branches.find((b: any) => b.sol === r.sol)?.name || currentBranch?.name || ''} Branch: Dear ${r.account_name}, your loan installment of ₹${fmt(
                                                     r.due_amount
                                                   )} is due for repayment ${isDueToday ? 'TODAY (' + date + ')' : 'on ' + r.due_date}. Please ensure payment today to keep your account regular and prevent SMA classification.`
                                                 )}`}
@@ -2561,7 +2560,7 @@ export default function SmaPortal() {
                                       <a
                                         className="secondary button"
                                         href={`https://wa.me/${waMobile}?text=${encodeURIComponent(
-                                          `Indian Overseas Bank ${currentBranch?.name || ''} Branch: Dear ${r.account_name}, your loan installment of ₹${fmt(
+                                          `Indian Overseas Bank ${data.branches.find((b: any) => b.sol === r.sol)?.name || currentBranch?.name || ''} Branch: Dear ${r.account_name}, your loan installment of ₹${fmt(
                                             r.due_amount
                                           )} is due for repayment ${isDueToday ? 'TODAY (' + date + ')' : 'on ' + r.due_date}. Please ensure payment today to keep your account regular and prevent SMA classification.`
                                         )}`}

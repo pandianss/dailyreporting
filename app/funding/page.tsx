@@ -103,8 +103,6 @@ export default function FundingPortal() {
       if (j.user.role === 'branch') {
         setSol(j.user.sol);
         setTab((curr) => curr === 'Branch summary' ? 'Low balance accounts' : curr);
-      } else if (!sol && j.branches.length) {
-        setSol(j.branches[0].sol);
       }
     } catch (e: any) {
       if (!isSilent) setError(e.message);
