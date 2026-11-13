@@ -48,8 +48,8 @@ export default function FundingPortal() {
   const [error, setError] = useState('');
   const [busy, setBusy] = useState(false);
   const [showAll, setShowAll] = useState(false);
-  const [tickerPaused, setTickerPaused] = useState(false);
-  const [tickerSpeed, setTickerSpeed] = useState<'leisurely' | 'slow' | 'normal'>('leisurely');
+  const [activityExpanded, setActivityExpanded] = useState(false);
+  const [activityFilter, setActivityFilter] = useState<'all' | 'logins' | 'funded'>('all');
   const [fundingAmountInput, setFundingAmountInput] = useState<{ [id: string]: string }>({});
   const [rollNoInput, setRollNoInput] = useState<{ [id: string]: string }>({});
   const [selectedCertRoll, setSelectedCertRoll] = useState<string | null>(null);
@@ -398,14 +398,16 @@ export default function FundingPortal() {
     (a, b) => b.fundedCount - a.fundedCount || b.amount - a.amount
   );
 
-  // Ticker items for branches that logged in or funded accounts
-  const tickerItems: Array<{
+  // Chronological Activity Feed for branches that logged in or funded accounts
+  const activityFeed: Array<{
     id: string;
     sol: string;
     branchName: string;
-    text: string;
+    type: 'login' | 'fund' | 'standby';
+    detailText: string;
     icon: string;
     time: string;
+    timeStr: string;
   }> = [];
 
   for (const l of branchLogins) {
@@ -413,13 +415,15 @@ export default function FundingPortal() {
     const timeStr = l.lastActive
       ? new Date(l.lastActive).toLocaleTimeString('en-IN', { timeZone: 'Asia/Kolkata', hour: '2-digit', minute: '2-digit' })
       : '';
-    tickerItems.push({
+    activityFeed.push({
       id: `login-${l.phone}`,
       sol: l.sol,
       branchName: b?.name || l.sol,
-      text: `${b?.name || 'Branch'} (SOL ${l.sol}): Head ${l.name || l.phone?.slice(2)} logged in${timeStr ? ' at ' + timeStr : ''}`,
+      type: 'login',
+      detailText: `Branch Head ${l.name || l.phone?.slice(2)} logged in`,
       icon: '🟢',
       time: l.lastActive || '',
+      timeStr,
     });
   }
 
@@ -429,35 +433,28 @@ export default function FundingPortal() {
       const timeStr = a.funded_at
         ? new Date(a.funded_at).toLocaleTimeString('en-IN', { timeZone: 'Asia/Kolkata', hour: '2-digit', minute: '2-digit' })
         : '';
-      tickerItems.push({
+      activityFeed.push({
         id: `fund-${a.id}`,
         sol: a.sol,
         branchName: b?.name || a.sol,
-        text: `${b?.name || 'Branch'} (SOL ${a.sol}): Funded ₹${fmt(a.funded_amount)} for ${a.customer_name}${a.roll_no ? ' · Roll: ' + a.roll_no : ''}${timeStr ? ' at ' + timeStr : ''}`,
+        type: 'fund',
+        detailText: `Funded ₹${fmt(a.funded_amount)} for ${a.customer_name}${a.roll_no ? ' (Roll: ' + a.roll_no + ')' : ''}`,
         icon: '💰',
         time: a.funded_at || '',
+        timeStr,
       });
     }
   }
 
-  tickerItems.sort((a, b) => b.time.localeCompare(a.time));
+  activityFeed.sort((a, b) => b.time.localeCompare(a.time));
 
-  if (!tickerItems.length) {
-    tickerItems.push({
-      id: 'standby',
-      sol: data.branches[0]?.sol || '0174',
-      branchName: data.branches[0]?.name || 'Dindigul Region',
-      text: `Dindigul Regional Office: Live CASA funding ticker standby · ${data.branches.length} branches connected`,
-      icon: '⚡',
-      time: '',
-    });
-  }
+  const filteredFeed = activityFeed.filter((item) => {
+    if (activityFilter === 'logins') return item.type === 'login';
+    if (activityFilter === 'funded') return item.type === 'fund';
+    return true;
+  });
 
-  const activeTickerItems = tickerItems.slice(0, 25);
-  const tickerSecs = Math.max(
-    180,
-    activeTickerItems.length * (tickerSpeed === 'leisurely' ? 22 : tickerSpeed === 'slow' ? 35 : 12)
-  );
+  const displayFeed = activityExpanded ? filteredFeed : filteredFeed.slice(0, 4);
 
   return (
     <div className={'shell role-' + data.user.role}>
@@ -643,65 +640,216 @@ export default function FundingPortal() {
             </label>
           </div>
 
-          {/* RUNNING TICKER FOR BRANCH LOGINS & FUNDING UPDATES */}
-          <div className="tickertape-wrap no-print">
-            <div className="tickertape-label">
-              <div style={{ display: 'inline-flex', alignItems: 'center', gap: 6 }}>
-                <span className="live-dot" /> REGIONAL LIVE PULSE
+          {/* CHRONOLOGICAL REGIONAL LIVE ACTIVITY FEED */}
+          <div
+            className="no-print"
+            style={{
+              background: '#ffffff',
+              border: '1px solid #e2e8f0',
+              borderRadius: 12,
+              marginBottom: 20,
+              boxShadow: '0 2px 8px rgba(15, 23, 42, 0.04)',
+              overflow: 'hidden',
+            }}
+          >
+            {/* Header bar */}
+            <div
+              style={{
+                background: '#0d2344',
+                color: '#ffffff',
+                padding: '12px 18px',
+                display: 'flex',
+                justifyContent: 'space-between',
+                alignItems: 'center',
+                flexWrap: 'wrap',
+                gap: 10,
+              }}
+            >
+              <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
+                <span
+                  style={{
+                    width: 8,
+                    height: 8,
+                    borderRadius: '50%',
+                    background: '#10b981',
+                    display: 'inline-block',
+                    boxShadow: '0 0 0 3px rgba(16, 185, 129, 0.25)',
+                  }}
+                />
+                <span style={{ fontWeight: 800, fontSize: 13, letterSpacing: '0.6px', textTransform: 'uppercase' }}>
+                  Regional CASA Funding Live Activity Feed
+                </span>
+                <span
+                  style={{
+                    background: 'rgba(255, 255, 255, 0.15)',
+                    fontSize: 11,
+                    fontWeight: 700,
+                    padding: '2px 8px',
+                    borderRadius: 12,
+                    color: '#e2e8f0',
+                  }}
+                >
+                  {activityFeed.length} updates today
+                </span>
               </div>
-              <div style={{ display: 'inline-flex', alignItems: 'center', gap: 6 }}>
-                <button
-                  type="button"
-                  className="tickertape-pause-btn"
-                  onClick={() =>
-                    setTickerSpeed(
-                      tickerSpeed === 'leisurely'
-                        ? 'slow'
-                        : tickerSpeed === 'slow'
-                          ? 'normal'
-                          : 'leisurely'
-                    )
-                  }
-                  title="Change marquee speed"
-                >
-                  {tickerSpeed === 'leisurely' ? '🐢 Slow (22s)' : tickerSpeed === 'slow' ? '🐌 Extra Slow (35s)' : '🐇 Normal (12s)'}
-                </button>
-                <button
-                  type="button"
-                  className="tickertape-pause-btn"
-                  onClick={() => setTickerPaused(!tickerPaused)}
-                  title={tickerPaused ? 'Click to resume marquee' : 'Click to pause marquee'}
-                >
-                  {tickerPaused ? <Play size={11} /> : <Pause size={11} />}
-                  <span>{tickerPaused ? 'Resume' : 'Pause'}</span>
-                </button>
+
+              <div style={{ display: 'flex', alignItems: 'center', gap: 8, flexWrap: 'wrap' }}>
+                <div style={{ display: 'inline-flex', background: 'rgba(255, 255, 255, 0.1)', borderRadius: 20, padding: 2 }}>
+                  <button
+                    type="button"
+                    onClick={() => setActivityFilter('all')}
+                    style={{
+                      background: activityFilter === 'all' ? '#ffffff' : 'transparent',
+                      color: activityFilter === 'all' ? '#0d2344' : '#cbd5e1',
+                      border: 0,
+                      borderRadius: 16,
+                      fontSize: 11,
+                      fontWeight: 700,
+                      padding: '3px 10px',
+                      cursor: 'pointer',
+                      minHeight: 'auto',
+                    }}
+                  >
+                    All ({activityFeed.length})
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => setActivityFilter('logins')}
+                    style={{
+                      background: activityFilter === 'logins' ? '#ffffff' : 'transparent',
+                      color: activityFilter === 'logins' ? '#0d2344' : '#cbd5e1',
+                      border: 0,
+                      borderRadius: 16,
+                      fontSize: 11,
+                      fontWeight: 700,
+                      padding: '3px 10px',
+                      cursor: 'pointer',
+                      minHeight: 'auto',
+                    }}
+                  >
+                    🟢 Logins ({activityFeed.filter((i) => i.type === 'login').length})
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => setActivityFilter('funded')}
+                    style={{
+                      background: activityFilter === 'funded' ? '#ffffff' : 'transparent',
+                      color: activityFilter === 'funded' ? '#0d2344' : '#cbd5e1',
+                      border: 0,
+                      borderRadius: 16,
+                      fontSize: 11,
+                      fontWeight: 700,
+                      padding: '3px 10px',
+                      cursor: 'pointer',
+                      minHeight: 'auto',
+                    }}
+                  >
+                    💰 Funded ({activityFeed.filter((i) => i.type === 'fund').length})
+                  </button>
+                </div>
+
+                {filteredFeed.length > 4 && (
+                  <button
+                    type="button"
+                    onClick={() => setActivityExpanded(!activityExpanded)}
+                    style={{
+                      background: 'rgba(255, 255, 255, 0.15)',
+                      color: '#ffffff',
+                      border: '1px solid rgba(255, 255, 255, 0.25)',
+                      borderRadius: 6,
+                      fontSize: 11,
+                      fontWeight: 700,
+                      padding: '4px 10px',
+                      cursor: 'pointer',
+                      minHeight: 'auto',
+                    }}
+                  >
+                    {activityExpanded ? '▲ Show Recent (4)' : `▼ View Full Feed (${filteredFeed.length})`}
+                  </button>
+                )}
               </div>
             </div>
-            <div className="tickertape-track">
-              <div
-                className="tickertape-content"
-                style={{
-                  animationDuration: `${tickerSecs}s`,
-                  ...(tickerPaused ? { animationPlayState: 'paused' } : {}),
-                }}
-              >
-                {activeTickerItems.concat(activeTickerItems).map((item, idx) => (
-                  <button
-                    key={`${item.id}-${idx}`}
-                    type="button"
-                    className="tickertape-item"
-                    onClick={() => {
-                      setSol(item.sol);
-                      setTab('Low balance accounts');
-                    }}
-                    title={`Click to open ${item.branchName} (${item.sol}) accounts`}
-                  >
-                    <span className="tickertape-icon">{item.icon}</span>
-                    <span className="tickertape-text">{item.text}</span>
-                    <span className="tickertape-link">Open branch →</span>
-                  </button>
-                ))}
-              </div>
+
+            {/* List */}
+            <div>
+              {displayFeed.length ? (
+                displayFeed.map((item, idx) => {
+                  const isLogin = item.type === 'login';
+                  const isFund = item.type === 'fund';
+                  return (
+                    <div
+                      key={item.id + idx}
+                      style={{
+                        padding: '11px 18px',
+                        display: 'flex',
+                        alignItems: 'center',
+                        justifyContent: 'space-between',
+                        gap: 12,
+                        borderBottom: idx === displayFeed.length - 1 ? 'none' : '1px solid #f1f5f9',
+                        background: idx % 2 === 0 ? '#ffffff' : '#fcfdfe',
+                      }}
+                    >
+                      <div style={{ display: 'flex', alignItems: 'center', gap: 12, minWidth: 0, flex: 1 }}>
+                        <span
+                          style={{
+                            fontSize: 11,
+                            fontWeight: 700,
+                            color: isLogin ? '#047857' : isFund ? '#b45309' : '#64748b',
+                            background: isLogin ? '#ecfdf5' : isFund ? '#fefce8' : '#f1f5f9',
+                            border: isLogin ? '1px solid #a7f3d0' : isFund ? '1px solid #fef08a' : '1px solid #e2e8f0',
+                            padding: '3px 8px',
+                            borderRadius: 6,
+                            whiteSpace: 'nowrap',
+                            display: 'inline-flex',
+                            alignItems: 'center',
+                            gap: 4,
+                          }}
+                        >
+                          <span>{item.icon}</span>
+                          <span>{item.timeStr || 'Today'}</span>
+                        </span>
+
+                        <div style={{ fontSize: 13, color: '#1e293b', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+                          <b style={{ color: '#0f172a' }}>{item.branchName}</b>
+                          <span style={{ color: '#64748b', fontSize: 12, marginLeft: 6 }}>({item.sol})</span>
+                          <span style={{ margin: '0 8px', color: '#cbd5e1' }}>•</span>
+                          <span style={{ color: isFund ? '#047857' : '#334155', fontWeight: isFund ? 600 : 500 }}>
+                            {item.detailText}
+                          </span>
+                        </div>
+                      </div>
+
+                      <button
+                        type="button"
+                        className="secondary"
+                        onClick={() => {
+                          setSol(item.sol);
+                          setTab('Low balance accounts');
+                        }}
+                        style={{
+                          fontSize: 11,
+                          padding: '4px 10px',
+                          borderRadius: 6,
+                          fontWeight: 600,
+                          color: '#1d4ed8',
+                          borderColor: '#bfdbfe',
+                          background: '#eff6ff',
+                          whiteSpace: 'nowrap',
+                          flexShrink: 0,
+                          minHeight: 'auto',
+                        }}
+                        title={`Open ${item.branchName} (${item.sol}) accounts`}
+                      >
+                        Open Branch →
+                      </button>
+                    </div>
+                  );
+                })
+              ) : (
+                <div style={{ padding: '16px 20px', color: '#64748b', fontSize: 13, textAlign: 'center' }}>
+                  No {activityFilter === 'logins' ? 'logins' : activityFilter === 'funded' ? 'accounts funded' : 'activity'} recorded today yet.
+                </div>
+              )}
             </div>
           </div>
 
