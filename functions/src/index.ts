@@ -108,6 +108,8 @@ export const api = onRequest(
   {
     region: 'asia-south1',
     maxInstances: 10,
+    memory: '1GiB',
+    timeoutSeconds: 300,
   },
   app
 );

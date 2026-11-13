@@ -168,7 +168,20 @@ export default function SmaPortal() {
     }
     try {
       const r = await fetch('/api/portal?date=' + date + '&_t=' + Date.now(), { cache: 'no-store' });
-      const j: any = await r.json();
+      const text = await r.text();
+      let j: any = null;
+      try {
+        j = JSON.parse(text);
+      } catch {
+        if (!r.ok) {
+          throw new Error(
+            r.status === 503
+              ? 'Server is temporarily updating. Please retry in a moment.'
+              : `Server error (${r.status}): ${text.slice(0, 100)}`
+          );
+        }
+        throw new Error('Invalid server response');
+      }
       if (!r.ok) throw new Error(j.error);
       setData(j);
       if (j.user.role === 'branch') {
@@ -218,8 +231,21 @@ export default function SmaPortal() {
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ ...body, date }),
       });
-      const j: any = await r.json();
-      if (!r.ok) throw new Error(j.error);
+      const text = await r.text();
+      let j: any = null;
+      try {
+        j = JSON.parse(text);
+      } catch {
+        if (!r.ok) {
+          throw new Error(
+            r.status === 503
+              ? 'Server is temporarily updating. Please retry in a few seconds.'
+              : `Server error (${r.status}): ${text.slice(0, 100)}`
+          );
+        }
+        throw new Error('Invalid server response');
+      }
+      if (!r.ok) throw new Error(j?.error || 'Operation failed');
       setNotice(okMsg);
       await load();
     } catch (e: any) {

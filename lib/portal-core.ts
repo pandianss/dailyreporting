@@ -714,18 +714,37 @@ export async function handlePortalPost(
       requireAdmin();
       const validated = model.validateRepayments(body.rows, branches);
       const existing = await store.list('repay:');
-      const existingByKey = new Map(existing.map((x: any) => [x.key, x]));
+      const existingMap = new Map<string, { roll_no?: string; completed?: boolean; completedAt?: any; completedBy?: any }>();
+      const oldKeysToDelete: string[] = [];
       const nextKeys = new Set(validated.map((r: any) => 'repay:' + r.sol + ':' + r.id));
-      const ops: Array<{ type: 'put'; key: string; value: any } | { type: 'del'; key: string }> = [];
       for (const old of existing) {
         if (!nextKeys.has(old.key)) {
-          ops.push({ type: 'del', key: old.key });
+          oldKeysToDelete.push(old.key);
+        } else {
+          existingMap.set(old.key, {
+            roll_no: old.roll_no,
+            completed: old.completed,
+            completedAt: old.completedAt,
+            completedBy: old.completedBy,
+          });
         }
+      }
+      let chunk: Array<{ type: 'put'; key: string; value: any } | { type: 'del'; key: string }> = [];
+      for (const k of oldKeysToDelete) {
+        chunk.push({ type: 'del', key: k });
+        if (chunk.length >= 200) {
+          await store.batch(chunk);
+          chunk = [];
+        }
+      }
+      if (chunk.length > 0) {
+        await store.batch(chunk);
+        chunk = [];
       }
       for (const row of validated) {
         const key = 'repay:' + row.sol + ':' + row.id;
-        const prev = existingByKey.get(key);
-        ops.push({
+        const prev = existingMap.get(key);
+        chunk.push({
           type: 'put',
           key,
           value: {
@@ -738,10 +757,16 @@ export async function handlePortalPost(
             uploadedBy: auth.user.email,
           },
         });
+        if (chunk.length >= 200) {
+          await store.batch(chunk);
+          chunk = [];
+        }
       }
-      for (let i = 0; i < ops.length; i += 200) {
-        await store.batch(ops.slice(i, i + 200));
+      if (chunk.length > 0) {
+        await store.batch(chunk);
+        chunk = [];
       }
+      return { status: 200, body: { ok: true, imported: validated.length } };
     } else if (action === 'repayment-status') {
       if (auth.user.role === 'reviewer' || auth.user.role === 'srm' || auth.user.role === 'gm') {
         throw new Error('Only branch heads or administrator can update repayment status');
@@ -854,18 +879,39 @@ export async function handlePortalPost(
       requireAdmin();
       const validated = model.validateSMAAccounts(body.rows, branches);
       const existing = await store.list('sma:');
-      const existingByKey = new Map(existing.map((x: any) => [x.key, x]));
+      const existingMap = new Map<string, { roll_no?: string; status?: string; remarks?: string; promise_date?: any; updatedAt?: any; updatedBy?: any }>();
+      const oldKeysToDelete: string[] = [];
       const nextKeys = new Set(validated.map((r: any) => 'sma:' + r.sol + ':' + r.id));
-      const ops: Array<{ type: 'put'; key: string; value: any } | { type: 'del'; key: string }> = [];
       for (const old of existing) {
         if (!nextKeys.has(old.key)) {
-          ops.push({ type: 'del', key: old.key });
+          oldKeysToDelete.push(old.key);
+        } else {
+          existingMap.set(old.key, {
+            roll_no: old.roll_no,
+            status: old.status,
+            remarks: old.remarks,
+            promise_date: old.promise_date,
+            updatedAt: old.updatedAt,
+            updatedBy: old.updatedBy,
+          });
         }
+      }
+      let chunk: Array<{ type: 'put'; key: string; value: any } | { type: 'del'; key: string }> = [];
+      for (const k of oldKeysToDelete) {
+        chunk.push({ type: 'del', key: k });
+        if (chunk.length >= 200) {
+          await store.batch(chunk);
+          chunk = [];
+        }
+      }
+      if (chunk.length > 0) {
+        await store.batch(chunk);
+        chunk = [];
       }
       for (const row of validated) {
         const key = 'sma:' + row.sol + ':' + row.id;
-        const prev = existingByKey.get(key);
-        ops.push({
+        const prev = existingMap.get(key);
+        chunk.push({
           type: 'put',
           key,
           value: {
@@ -878,10 +924,16 @@ export async function handlePortalPost(
             updatedBy: prev?.updatedBy || auth.user.email,
           },
         });
+        if (chunk.length >= 200) {
+          await store.batch(chunk);
+          chunk = [];
+        }
       }
-      for (let i = 0; i < ops.length; i += 200) {
-        await store.batch(ops.slice(i, i + 200));
+      if (chunk.length > 0) {
+        await store.batch(chunk);
+        chunk = [];
       }
+      return { status: 200, body: { ok: true, imported: validated.length } };
     } else if (action === 'sma-status') {
       const sol = auth.user.role === 'branch' ? auth.user.sol : body.sol;
       if (!branches.find((b) => b.sol === sol) || !String(body.id || '').trim()) {
@@ -984,18 +1036,41 @@ export async function handlePortalPost(
       }
       const validated = model.validateFundingAccounts(body.rows, branches);
       const existing = await store.list('funding:');
-      const existingByKey = new Map(existing.map((x: any) => [x.key, x]));
+      const existingMap = new Map<string, { roll_no?: string; funded?: boolean; funded_amount?: number; funded_at?: any; funded_by?: any; call_status?: string; notes?: string; updatedAt?: any }>();
+      const oldKeysToDelete: string[] = [];
       const nextKeys = new Set(validated.map((r: any) => 'funding:' + r.sol + ':' + r.id));
-      const ops: Array<{ type: 'put'; key: string; value: any } | { type: 'del'; key: string }> = [];
       for (const old of existing) {
         if (!nextKeys.has(old.key)) {
-          ops.push({ type: 'del', key: old.key });
+          oldKeysToDelete.push(old.key);
+        } else {
+          existingMap.set(old.key, {
+            roll_no: old.roll_no,
+            funded: old.funded,
+            funded_amount: old.funded_amount,
+            funded_at: old.funded_at,
+            funded_by: old.funded_by,
+            call_status: old.call_status,
+            notes: old.notes,
+            updatedAt: old.updatedAt,
+          });
         }
+      }
+      let chunk: Array<{ type: 'put'; key: string; value: any } | { type: 'del'; key: string }> = [];
+      for (const k of oldKeysToDelete) {
+        chunk.push({ type: 'del', key: k });
+        if (chunk.length >= 200) {
+          await store.batch(chunk);
+          chunk = [];
+        }
+      }
+      if (chunk.length > 0) {
+        await store.batch(chunk);
+        chunk = [];
       }
       for (const row of validated) {
         const key = 'funding:' + row.sol + ':' + row.id;
-        const prev = existingByKey.get(key);
-        ops.push({
+        const prev = existingMap.get(key);
+        chunk.push({
           type: 'put',
           key,
           value: {
@@ -1012,10 +1087,16 @@ export async function handlePortalPost(
             uploadedBy: auth.user.email,
           },
         });
+        if (chunk.length >= 200) {
+          await store.batch(chunk);
+          chunk = [];
+        }
       }
-      for (let i = 0; i < ops.length; i += 200) {
-        await store.batch(ops.slice(i, i + 200));
+      if (chunk.length > 0) {
+        await store.batch(chunk);
+        chunk = [];
       }
+      return { status: 200, body: { ok: true, imported: validated.length } };
     } else if (action === 'funding-status') {
       const sol = auth.user.role === 'branch' ? auth.user.sol : body.sol;
       if (!branches.find((b) => b.sol === sol) || !String(body.id || '').trim()) {
