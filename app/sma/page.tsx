@@ -2,26 +2,22 @@
 import { useEffect, useState, useRef } from 'react';
 import {
   LayoutDashboard,
-  Users,
   Upload,
   ChevronRight,
   Download,
-  Send,
   RefreshCw,
   MessageSquare,
-  ShieldAlert,
   ArrowRight,
   CheckCircle2,
-  Phone,
-  PhoneCall,
-  Clock,
-  Building2,
   ExternalLink,
-  Calendar,
-  AlertTriangle
+  CalendarClock,
+  Clock,
+  AlertTriangle,
+  Building2,
+  Sparkles
 } from 'lucide-react';
 import Login from '../Login';
-import { parseSMACSV, validateSMAAccounts, cutoffs } from '../model.mjs';
+import { parseRepaymentsCSV, validateRepayments, addDays } from '../model.mjs';
 
 function fmt(n: any) {
   if (n === null || n === undefined || n === '' || isNaN(Number(n))) return '0';
@@ -34,30 +30,16 @@ export default function SmaPortal() {
   const [date, setDate] = useState(() =>
     new Date().toLocaleDateString('en-CA', { timeZone: 'Asia/Kolkata' })
   );
-  const [tab, setTab] = useState('SMA Overview');
+  const [tab, setTab] = useState('Repayment follow-up');
   const [sol, setSol] = useState('');
   const [search, setSearch] = useState('');
-  const [bucketFilter, setBucketFilter] = useState('All');
-  const [statusFilter, setStatusFilter] = useState('All');
+  const [filter, setFilter] = useState('All');
   const [branchSearch, setBranchSearch] = useState('');
   const [notice, setNotice] = useState('');
   const [error, setError] = useState('');
   const [busy, setBusy] = useState(false);
+  const [showAll, setShowAll] = useState(false);
 
-  // Form states for branch SMA eliminations
-  const [sma0Count, setSma0Count] = useState(0);
-  const [sma0Amount, setSma0Amount] = useState(0);
-  const [sma1Count, setSma1Count] = useState(0);
-  const [sma1Amount, setSma1Amount] = useState(0);
-  const [sma2Count, setSma2Count] = useState(0);
-  const [sma2Amount, setSma2Amount] = useState(0);
-  const [smaNotes, setSmaNotes] = useState('');
-
-  // Review remark
-  const [reviewText, setReviewText] = useState('');
-  const [reviewStatus, setReviewStatus] = useState('reviewed');
-
-  // Admin upload
   const fileRef = useRef<HTMLInputElement>(null);
 
   async function checkAuth() {
@@ -85,7 +67,7 @@ export default function SmaPortal() {
       setData(j);
       if (j.user.role === 'branch') {
         setSol(j.user.sol);
-        setTab('Branch follow-up');
+        setTab('Repayment follow-up');
       } else if (!sol && j.branches.length) {
         setSol(j.branches[0].sol);
       }
@@ -99,29 +81,6 @@ export default function SmaPortal() {
   useEffect(() => {
     if (authed) load();
   }, [date, authed]);
-
-  // Sync form inputs when sol or submissions change
-  useEffect(() => {
-    if (!data || !sol) return;
-    const sub = data.subs?.find((s: any) => s.sol === sol);
-    if (sub?.values) {
-      setSma0Count(Number(sub.values.sma0_count || 0));
-      setSma0Amount(Number(sub.values.sma0_amount || 0));
-      setSma1Count(Number(sub.values.sma1_count || 0));
-      setSma1Amount(Number(sub.values.sma1_amount || 0));
-      setSma2Count(Number(sub.values.sma2_count || 0));
-      setSma2Amount(Number(sub.values.sma2_amount || 0));
-      setSmaNotes(String(sub.values.notes || ''));
-    } else {
-      setSma0Count(0);
-      setSma0Amount(0);
-      setSma1Count(0);
-      setSma1Amount(0);
-      setSma2Count(0);
-      setSma2Amount(0);
-      setSmaNotes('');
-    }
-  }, [sol, data]);
 
   async function act(body: any, okMsg: string) {
     setBusy(true);
@@ -144,56 +103,18 @@ export default function SmaPortal() {
     }
   }
 
-  async function saveSmaEliminations() {
+  async function toggleRepaymentStatus(accountSol: string, accountId: string, currentCompleted: boolean) {
     await act(
       {
-        action: 'sma-entry',
-        sol,
-        sma0_count: Number(sma0Count || 0),
-        sma0_amount: Number(sma0Amount || 0),
-        sma1_count: Number(sma1Count || 0),
-        sma1_amount: Number(sma1Amount || 0),
-        sma2_count: Number(sma2Count || 0),
-        sma2_amount: Number(sma2Amount || 0),
-        notes: smaNotes,
+        action: 'repayment-status',
+        sol: accountSol,
+        id: accountId,
+        completed: !currentCompleted,
       },
-      '✓ SMA eliminations saved! Changes immediately reflect in the Daily Reporting Portal.'
+      currentCompleted
+        ? 'Repayment marked pending. Status synced with Daily Reporting.'
+        : '✓ Repayment marked completed! Reflected in Daily Reporting Portal.'
     );
-  }
-
-  async function updateAccountStatus(accId: string, nextStatus: string, remarks?: string, promiseDate?: string) {
-    await act(
-      {
-        action: 'sma-status',
-        sol,
-        id: accId,
-        status: nextStatus,
-        remarks: remarks || '',
-        promise_date: promiseDate || null,
-      },
-      'Account follow-up updated.'
-    );
-  }
-
-  async function resolveAndAddElimination(acc: any) {
-    const bucket = acc.bucket || 'sma0';
-    const amt = Number(acc.amount || 0);
-
-    // Update account status to resolved
-    await updateAccountStatus(acc.id, 'resolved', 'Resolved & cleared today through recovery follow-up');
-
-    // Also auto-increment elimination form for this bucket
-    if (bucket === 'sma0') {
-      setSma0Count((c) => c + 1);
-      setSma0Amount((a) => a + amt);
-    } else if (bucket === 'sma1') {
-      setSma1Count((c) => c + 1);
-      setSma1Amount((a) => a + amt);
-    } else if (bucket === 'sma2') {
-      setSma2Count((c) => c + 1);
-      setSma2Amount((a) => a + amt);
-    }
-    setNotice(`✓ Account ${acc.cif} marked resolved! Review and click 'Save SMA Eliminations' to confirm sync with Daily Report.`);
   }
 
   async function switchPortal() {
@@ -227,9 +148,12 @@ export default function SmaPortal() {
     setNotice('');
     try {
       const text = await file.text();
-      const rawRows = parseSMACSV(text);
-      const validated = validateSMAAccounts(rawRows, data.branches);
-      await act({ action: 'upload-sma', rows: validated }, `Successfully imported ${validated.length} SMA accounts across branches.`);
+      const rawRows = parseRepaymentsCSV(text);
+      const validated = validateRepayments(rawRows, data.branches);
+      await act(
+        { action: 'upload-repayments', rows: validated },
+        `Successfully imported ${validated.length} repayment accounts across branches.`
+      );
       if (fileRef.current) fileRef.current.value = '';
     } catch (err: any) {
       setError(err.message);
@@ -248,15 +172,31 @@ export default function SmaPortal() {
     URL.revokeObjectURL(u);
   }
 
+  const dueLabel = (d: string) => {
+    if (d === date) return 'Due today';
+    const diff = Math.round(
+      (new Date(d + 'T12:00:00Z').getTime() - new Date(date + 'T12:00:00Z').getTime()) / 86400000
+    );
+    if (diff < 0) return `${Math.abs(diff)}d overdue`;
+    if (diff === 1) return 'Tomorrow';
+    return `In ${diff} days`;
+  };
+
   if (authed === false) {
-    return <Login onSuccess={() => setAuthed(true)} portalName="SMA Follow-up Portal" portalTag="SPECIAL MENTION ACCOUNTS" />;
+    return (
+      <Login
+        onSuccess={() => setAuthed(true)}
+        portalName="SMA Repayment Follow-up Portal"
+        portalTag="PREVENTING SMA SLIPPAGE · TODAY’S DUE & NEXT 3 DAYS"
+      />
+    );
   }
 
   if (!data) {
     return (
       <main className="loading">
         <img src="/logo.svg" alt="Indian Overseas Bank Logo" className="sitelogo sitelogo-lg" />
-        <h1>SMA Follow-up Portal</h1>
+        <h1>SMA Repayment Portal</h1>
         <p>{error || 'Connecting to regional database…'}</p>
         {error && <button onClick={load}>Try again</button>}
       </main>
@@ -269,44 +209,77 @@ export default function SmaPortal() {
   const isBranch = data.user.role === 'branch';
 
   const currentBranch = data.branches.find((b: any) => b.sol === sol);
-  const snap = data.pub?.rows?.find((b: any) => b.sol === sol);
-  const sub = data.subs?.find((s: any) => s.sol === sol);
   const headContact = data.contacts?.find((c: any) => c.sol === sol);
 
-  // Region-wide aggregates
-  const totalSnapSma0Count = data.pub?.rows?.reduce((acc: number, r: any) => acc + (r.sma0_yesterday_count || 0), 0) || 0;
-  const totalSnapSma0Amount = data.pub?.rows?.reduce((acc: number, r: any) => acc + (r.sma0_yesterday_amount || 0), 0) || 0;
-  const totalSnapSma1Count = data.pub?.rows?.reduce((acc: number, r: any) => acc + (r.sma1_yesterday_count || 0), 0) || 0;
-  const totalSnapSma1Amount = data.pub?.rows?.reduce((acc: number, r: any) => acc + (r.sma1_yesterday_amount || 0), 0) || 0;
-  const totalSnapSma2Count = data.pub?.rows?.reduce((acc: number, r: any) => acc + (r.sma2_yesterday_count || 0), 0) || 0;
-  const totalSnapSma2Amount = data.pub?.rows?.reduce((acc: number, r: any) => acc + (r.sma2_yesterday_amount || 0), 0) || 0;
+  // All repayments (due today + next 3 days)
+  const allRepayments: any[] = data.repayments || [];
+  const branchRepayments: any[] = isBranch
+    ? allRepayments
+    : sol
+      ? allRepayments.filter((r: any) => r.sol === sol)
+      : allRepayments;
 
-  const totalElimSma0Count = data.subs?.reduce((acc: number, s: any) => acc + (Number(s.values?.sma0_count) || 0), 0) || 0;
-  const totalElimSma0Amount = data.subs?.reduce((acc: number, s: any) => acc + (Number(s.values?.sma0_amount) || 0), 0) || 0;
-  const totalElimSma1Count = data.subs?.reduce((acc: number, s: any) => acc + (Number(s.values?.sma1_count) || 0), 0) || 0;
-  const totalElimSma1Amount = data.subs?.reduce((acc: number, s: any) => acc + (Number(s.values?.sma1_amount) || 0), 0) || 0;
-  const totalElimSma2Count = data.subs?.reduce((acc: number, s: any) => acc + (Number(s.values?.sma2_count) || 0), 0) || 0;
-  const totalElimSma2Amount = data.subs?.reduce((acc: number, s: any) => acc + (Number(s.values?.sma2_amount) || 0), 0) || 0;
+  // Breakdown: Today's due vs Next 3 days due
+  const branchDueToday = branchRepayments.filter((r: any) => r.due_date === date);
+  const branchDueTodayAmt = branchDueToday.reduce((acc, r) => acc + Number(r.due_amount || 0), 0);
+  const branchDueTodayComp = branchDueToday.filter((r: any) => r.completed);
+  const branchDueTodayCompAmt = branchDueTodayComp.reduce((acc, r) => acc + Number(r.due_amount || 0), 0);
+  const branchDueTodayPend = branchDueToday.filter((r: any) => !r.completed);
+  const branchDueTodayPendAmt = branchDueTodayAmt - branchDueTodayCompAmt;
 
-  const grandTotalYesterdayAmount = totalSnapSma0Amount + totalSnapSma1Amount + totalSnapSma2Amount;
-  const grandTotalElimAmount = totalElimSma0Amount + totalElimSma1Amount + totalElimSma2Amount;
-  const grandTotalElimCount = totalElimSma0Count + totalElimSma1Count + totalElimSma2Count;
+  const branchNext3Days = branchRepayments.filter((r: any) => r.due_date > date);
+  const branchNext3DaysAmt = branchNext3Days.reduce((acc, r) => acc + Number(r.due_amount || 0), 0);
+  const branchNext3DaysComp = branchNext3Days.filter((r: any) => r.completed);
+  const branchNext3DaysCompAmt = branchNext3DaysComp.reduce((acc, r) => acc + Number(r.due_amount || 0), 0);
+  const branchNext3DaysPend = branchNext3Days.filter((r: any) => !r.completed);
+  const branchNext3DaysPendAmt = branchNext3DaysAmt - branchNext3DaysCompAmt;
 
-  // Branch accounts
-  const branchSmaAccounts = (data.smaAccounts || []).filter((a: any) => a.sol === sol);
-  const filteredAccounts = branchSmaAccounts.filter((a: any) => {
-    const matchBucket = bucketFilter === 'All' || a.bucket.toLowerCase() === bucketFilter.toLowerCase();
-    const matchStatus = statusFilter === 'All' || (a.status || 'pending').toLowerCase() === statusFilter.toLowerCase();
-    const matchSearch =
-      !search ||
-      (a.cif + ' ' + a.borrower_name + ' ' + (a.phone || '')).toLowerCase().includes(search.toLowerCase());
-    return matchBucket && matchStatus && matchSearch;
+  const branchTotalAmt = branchDueTodayAmt + branchNext3DaysAmt;
+  const branchTotalCompAmt = branchDueTodayCompAmt + branchNext3DaysCompAmt;
+  const branchTotalCompCount = branchDueTodayComp.length + branchNext3DaysComp.length;
+  const branchTotalCount = branchRepayments.length;
+
+  // Region-wide metrics
+  const regionDueToday = allRepayments.filter((r: any) => r.due_date === date);
+  const regionDueTodayAmt = regionDueToday.reduce((acc, r) => acc + Number(r.due_amount || 0), 0);
+  const regionDueTodayComp = regionDueToday.filter((r: any) => r.completed);
+  const regionDueTodayCompAmt = regionDueTodayComp.reduce((acc, r) => acc + Number(r.due_amount || 0), 0);
+  const regionDueTodayPendCount = regionDueToday.length - regionDueTodayComp.length;
+
+  const regionNext3Days = allRepayments.filter((r: any) => r.due_date > date);
+  const regionNext3DaysAmt = regionNext3Days.reduce((acc, r) => acc + Number(r.due_amount || 0), 0);
+
+  const regionTotalAmt = regionDueTodayAmt + regionNext3DaysAmt;
+  const regionTotalCompAmt = allRepayments
+    .filter((r: any) => r.completed)
+    .reduce((acc, r) => acc + Number(r.due_amount || 0), 0);
+  const regionTotalCompCount = allRepayments.filter((r: any) => r.completed).length;
+
+  // Filtered accounts for display
+  const filteredAccounts = branchRepayments.filter((r: any) => {
+    const q = search.toLowerCase();
+    const matchSearch = !q || (r.cif + ' ' + r.account_name).toLowerCase().includes(q);
+    const matchFilter =
+      filter === 'All'
+        ? true
+        : filter === 'Due today'
+          ? r.due_date === date
+          : filter === 'Next 3 days'
+            ? r.due_date > date
+            : filter === 'Pending'
+              ? !r.completed
+              : filter === 'Completed'
+                ? r.completed
+                : true;
+    return matchSearch && matchFilter;
   });
 
+  const visibleAccounts = showAll ? filteredAccounts : filteredAccounts.slice(0, 50);
+
   const navItems = [
-    ...(!isBranch ? [['SMA Overview', LayoutDashboard]] : []),
-    ['Branch follow-up', Users],
-    ...(isAdmin ? [['Upload SMA Data', Upload]] : []),
+    ...(!isBranch ? [['Overview', LayoutDashboard]] : []),
+    ['Repayment follow-up', CalendarClock],
+    ...(isAdmin ? [['Upload repayments', Upload]] : []),
   ];
 
   return (
@@ -319,7 +292,7 @@ export default function SmaPortal() {
             <small>DINDIGUL REGION</small>
           </div>
         </div>
-        <div className="navlabel">SMA WORKSPACE</div>
+        <div className="navlabel">SMA PREVENTION WORKSPACE</div>
         <nav>
           {navItems.map(([name, Icon]: any) => (
             <button
@@ -356,10 +329,11 @@ export default function SmaPortal() {
       <main>
         <header>
           <div className="crumb">
-            Dindigul region <ChevronRight size={14} /> SMA Portal <ChevronRight size={14} /> {tab}
+            Dindigul region <ChevronRight size={14} /> SMA Prevention <ChevronRight size={14} /> {tab}
           </div>
           <div className="headeractions">
             <button
+              type="button"
               className="secondary"
               onClick={switchPortal}
               title="Open Daily Reporting Portal"
@@ -408,16 +382,26 @@ export default function SmaPortal() {
         <div className="content">
           <div className="title">
             <div>
-              <div className="eyebrow" style={{ color: '#dc2626' }}>
-                SPECIAL MENTION ACCOUNTS (SMA)
+              <div className="eyebrow" style={{ color: '#dc2626', display: 'flex', alignItems: 'center', gap: 6 }}>
+                <Clock size={14} /> TODAY’S DUE & NEXT 3 DAYS ADVANCE REPAYMENT TRACKER
               </div>
-              <h1>{isBranch ? `${currentBranch?.name || 'Branch'} · SMA Follow-up` : tab}</h1>
+              <h1>
+                {isBranch
+                  ? `${currentBranch?.name || 'Your Branch'} · Today’s Due & Next 3 Days Repayments`
+                  : tab === 'Repayment follow-up'
+                    ? `${currentBranch?.name || 'Branch'} · Repayment Accounts`
+                    : 'Today’s Due & Next 3 Days Overview'}
+              </h1>
               <p>
-                {tab === 'SMA Overview'
-                  ? 'Regional Special Mention Account positions, elimination tracking, and recovery progress.'
-                  : tab === 'Branch follow-up'
-                    ? 'Follow up on SMA-0, SMA-1, and SMA-2 borrower accounts and record today’s eliminations.'
-                    : 'Bulk upload SMA overdue lists to guide branch follow-up.'}
+                {tab === 'Overview'
+                  ? `Region-wide tracking of borrower repayments due today (${date}) and over the next 3 days (through ${addDays(
+                      date,
+                      3
+                    )}).`
+                  : `Monitor accounts due today (${date}) and the next 3 days (${addDays(date, 1)} to ${addDays(
+                      date,
+                      3
+                    )}). Mark complete once paid to prevent SMA slippage.`}
               </p>
             </div>
             <label className="date">
@@ -437,7 +421,7 @@ export default function SmaPortal() {
             </div>
           )}
 
-          {/* Banner explaining bi-directional sync */}
+          {/* Sync indicator banner */}
           <div
             className="alert neutral"
             style={{
@@ -452,10 +436,10 @@ export default function SmaPortal() {
             <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
               <CheckCircle2 size={20} color="#059669" />
               <div>
-                <b>Live Bi-Directional Synchronization</b>
+                <b>Live Bi-Directional Synchronization with Daily Reporting Portal</b>
                 <div style={{ fontSize: 13, color: '#64748b' }}>
-                  All eliminations, overdue updates, and notes saved in this portal immediately reflect in the{' '}
-                  <b>Daily Reporting Portal</b> and vice versa.
+                  Marking repayments complete or updating accounts here immediately updates the{' '}
+                  <b>Daily Reporting Portal</b> dashboard and branch summary tables.
                 </div>
               </div>
             </div>
@@ -464,37 +448,37 @@ export default function SmaPortal() {
               onClick={switchPortal}
               style={{ fontSize: 12, padding: '6px 12px', whiteSpace: 'nowrap' }}
             >
-              Switch to Daily Report <ArrowRight size={14} />
+              Open Daily Reporting Portal <ArrowRight size={14} />
             </button>
           </div>
 
-          {/* TAB 1: SMA OVERVIEW */}
-          {tab === 'SMA Overview' && (
+          {/* TAB 1: REGION-WIDE OVERVIEW (NON-BRANCH) */}
+          {tab === 'Overview' && !isBranch && (
             <>
               <div className="stats">
-                <div>
-                  <span>Total Region SMA Overdue</span>
-                  <strong style={{ color: '#b91c1c' }}>₹{fmt(grandTotalYesterdayAmount)}</strong>
+                <div style={{ borderLeft: '4px solid #dc2626' }}>
+                  <span style={{ color: '#dc2626', fontWeight: 700 }}>★ DUE TODAY ({date})</span>
+                  <strong style={{ color: '#b91c1c' }}>₹{fmt(regionDueTodayAmt)}</strong>
                   <small>
-                    SMA0: ₹{fmt(totalSnapSma0Amount)} · SMA1: ₹{fmt(totalSnapSma1Amount)} · SMA2: ₹
-                    {fmt(totalSnapSma2Amount)}
+                    {regionDueToday.length} accounts due today ({regionDueTodayPendCount} pending ·{' '}
+                    {regionDueTodayComp.length} completed)
                   </small>
                 </div>
                 <div>
-                  <span>Today’s Total Eliminations</span>
-                  <strong style={{ color: '#047857' }}>₹{fmt(grandTotalElimAmount)}</strong>
-                  <small>{grandTotalElimCount} accounts eliminated across region</small>
+                  <span>Next 3 Days Advance Due</span>
+                  <strong style={{ color: '#0369a1' }}>₹{fmt(regionNext3DaysAmt)}</strong>
+                  <small>{regionNext3Days.length} accounts due {addDays(date, 1)} to {addDays(date, 3)}</small>
                 </div>
                 <div>
-                  <span>SMA-0 Eliminated Today</span>
-                  <strong>₹{fmt(totalElimSma0Amount)}</strong>
-                  <small>{totalElimSma0Count} accts (1-30 days overdue)</small>
+                  <span>Total Scheduled (Today + 3 Days)</span>
+                  <strong>₹{fmt(regionTotalAmt)}</strong>
+                  <small>{allRepayments.length} total borrower accounts</small>
                 </div>
                 <div>
-                  <span>SMA-1 & SMA-2 Eliminated</span>
-                  <strong>₹{fmt(totalElimSma1Amount + totalElimSma2Amount)}</strong>
+                  <span>Total Cleared / Paid</span>
+                  <strong style={{ color: '#059669' }}>₹{fmt(regionTotalCompAmt)}</strong>
                   <small>
-                    SMA1: ₹{fmt(totalElimSma1Amount)} · SMA2: ₹{fmt(totalElimSma2Amount)}
+                    {regionTotalCompCount} accounts cleared ({allRepayments.length ? Math.round((regionTotalCompCount / allRepayments.length) * 100) : 0}%)
                   </small>
                 </div>
               </div>
@@ -502,45 +486,52 @@ export default function SmaPortal() {
               <div className="panel">
                 <div className="paneltop">
                   <div>
-                    <h2>Branch-wise SMA Performance & Eliminations</h2>
-                    <p>Yesterday’s confirmed balance vs today’s reported eliminations.</p>
+                    <h2>Branch Repayment Follow-up Status</h2>
+                    <p>Accounts slated for repayment today ({date}) and over the next 3 days.</p>
                   </div>
                   <button
                     className="secondary"
                     onClick={() => {
                       const csvHeader =
-                        'SOL,Branch,Yesterday SMA0 Accts,Yesterday SMA0 ₹,Yesterday SMA1 Accts,Yesterday SMA1 ₹,Yesterday SMA2 Accts,Yesterday SMA2 ₹,Today Elim SMA0 Accts,Today Elim SMA0 ₹,Today Elim SMA1 Accts,Today Elim SMA1 ₹,Today Elim SMA2 Accts,Today Elim SMA2 ₹,Total Eliminated ₹\n';
+                        'SOL,Branch,Due Today Accts,Due Today ₹,Due Today Completed,Due Today Pending,Next 3 Days Accts,Next 3 Days ₹,Total Accts,Total Due ₹,Total Cleared ₹,Completion %\n';
                       const csvRows = data.branches
                         .map((b: any) => {
-                          const r = data.pub?.rows?.find((x: any) => x.sol === b.sol);
-                          const s = data.subs?.find((x: any) => x.sol === b.sol);
-                          const totalElim =
-                            Number(s?.values?.sma0_amount || 0) +
-                            Number(s?.values?.sma1_amount || 0) +
-                            Number(s?.values?.sma2_amount || 0);
+                          const branchItems = allRepayments.filter((r: any) => r.sol === b.sol);
+                          const todayItems = branchItems.filter((r: any) => r.due_date === date);
+                          const todayAmt = todayItems.reduce((acc, r) => acc + Number(r.due_amount || 0), 0);
+                          const todayComp = todayItems.filter((r: any) => r.completed);
+                          const todayPend = todayItems.length - todayComp.length;
+                          const next3Items = branchItems.filter((r: any) => r.due_date > date);
+                          const next3Amt = next3Items.reduce((acc, r) => acc + Number(r.due_amount || 0), 0);
+                          const totalAmt = todayAmt + next3Amt;
+                          const totalCompAmt = branchItems
+                            .filter((r: any) => r.completed)
+                            .reduce((acc, r) => acc + Number(r.due_amount || 0), 0);
+                          const totalCompCount = branchItems.filter((r: any) => r.completed).length;
+                          const pct = branchItems.length
+                            ? Math.round((totalCompCount / branchItems.length) * 100)
+                            : 100;
+
                           return [
                             b.sol,
                             `"${b.name}"`,
-                            r?.sma0_yesterday_count ?? '',
-                            r?.sma0_yesterday_amount ?? '',
-                            r?.sma1_yesterday_count ?? '',
-                            r?.sma1_yesterday_amount ?? '',
-                            r?.sma2_yesterday_count ?? '',
-                            r?.sma2_yesterday_amount ?? '',
-                            s?.values?.sma0_count ?? '',
-                            s?.values?.sma0_amount ?? '',
-                            s?.values?.sma1_count ?? '',
-                            s?.values?.sma1_amount ?? '',
-                            s?.values?.sma2_count ?? '',
-                            s?.values?.sma2_amount ?? '',
-                            totalElim,
+                            todayItems.length,
+                            todayAmt,
+                            todayComp.length,
+                            todayPend,
+                            next3Items.length,
+                            next3Amt,
+                            branchItems.length,
+                            totalAmt,
+                            totalCompAmt,
+                            pct + '%',
                           ].join(',');
                         })
                         .join('\n');
-                      downloadCsv(`IOB_SMA_summary_${date}.csv`, csvHeader + csvRows);
+                      downloadCsv(`IOB_repayments_summary_${date}.csv`, csvHeader + csvRows);
                     }}
                   >
-                    <Download size={16} /> Export SMA summary
+                    <Download size={16} /> Export repayment summary
                   </button>
                 </div>
 
@@ -557,10 +548,10 @@ export default function SmaPortal() {
                     <thead>
                       <tr>
                         <th>BRANCH</th>
-                        <th>SMA-0 (YDAY / TODAY ELIM)</th>
-                        <th>SMA-1 (YDAY / TODAY ELIM)</th>
-                        <th>SMA-2 (YDAY / TODAY ELIM)</th>
-                        <th>TOTAL ELIMINATED TODAY</th>
+                        <th>DUE TODAY ({date})</th>
+                        <th>NEXT 3 DAYS DUE</th>
+                        <th>TOTAL SCHEDULED</th>
+                        <th>CLEARED / PAID</th>
                         <th>STATUS</th>
                         <th />
                       </tr>
@@ -571,18 +562,19 @@ export default function SmaPortal() {
                           (b.name + ' ' + b.sol).toLowerCase().includes(branchSearch.toLowerCase())
                         )
                         .map((b: any) => {
-                          const r = data.pub?.rows?.find((x: any) => x.sol === b.sol);
-                          const s = data.subs?.find((x: any) => x.sol === b.sol);
-                          const totalElim =
-                            Number(s?.values?.sma0_amount || 0) +
-                            Number(s?.values?.sma1_amount || 0) +
-                            Number(s?.values?.sma2_amount || 0);
-                          const hasElim = totalElim > 0;
-                          const hasOverdue =
-                            (r?.sma0_yesterday_amount || 0) +
-                              (r?.sma1_yesterday_amount || 0) +
-                              (r?.sma2_yesterday_amount || 0) >
-                            0;
+                          const branchItems = allRepayments.filter((r: any) => r.sol === b.sol);
+                          const todayItems = branchItems.filter((r: any) => r.due_date === date);
+                          const todayAmt = todayItems.reduce((acc, r) => acc + Number(r.due_amount || 0), 0);
+                          const todayComp = todayItems.filter((r: any) => r.completed);
+                          const todayPend = todayItems.length - todayComp.length;
+                          const next3Items = branchItems.filter((r: any) => r.due_date > date);
+                          const next3Amt = next3Items.reduce((acc, r) => acc + Number(r.due_amount || 0), 0);
+                          const totalAmt = todayAmt + next3Amt;
+                          const compAmt = branchItems
+                            .filter((r: any) => r.completed)
+                            .reduce((acc, r) => acc + Number(r.due_amount || 0), 0);
+                          const compCount = branchItems.filter((r: any) => r.completed).length;
+                          const pct = branchItems.length ? Math.round((compCount / branchItems.length) * 100) : 100;
 
                           return (
                             <tr key={b.sol}>
@@ -590,37 +582,52 @@ export default function SmaPortal() {
                                 <b>{b.name}</b>
                                 <small>SOL {b.sol}</small>
                               </td>
-                              <td data-label="SMA-0">
-                                <div>
-                                  <small>Yday: {r?.sma0_yesterday_count || 0} accts · ₹{fmt(r?.sma0_yesterday_amount)}</small>
-                                </div>
-                                <span style={{ color: s?.values?.sma0_amount ? '#059669' : '#64748b', fontWeight: 600 }}>
-                                  Elim: {s?.values?.sma0_count || 0} accts · ₹{fmt(s?.values?.sma0_amount)}
-                                </span>
+                              <td data-label="Due Today">
+                                {todayItems.length ? (
+                                  <div>
+                                    <b style={{ color: todayPend ? '#b91c1c' : '#059669' }}>₹{fmt(todayAmt)}</b>
+                                    <small style={{ color: todayPend ? '#dc2626' : '#166534', fontWeight: 600 }}>
+                                      {todayPend ? `★ ${todayPend} pending` : 'All cleared'} ({todayComp.length}/{todayItems.length})
+                                    </small>
+                                  </div>
+                                ) : (
+                                  <span style={{ color: '#64748b' }}>—</span>
+                                )}
                               </td>
-                              <td data-label="SMA-1">
-                                <div>
-                                  <small>Yday: {r?.sma1_yesterday_count || 0} accts · ₹{fmt(r?.sma1_yesterday_amount)}</small>
-                                </div>
-                                <span style={{ color: s?.values?.sma1_amount ? '#059669' : '#64748b', fontWeight: 600 }}>
-                                  Elim: {s?.values?.sma1_count || 0} accts · ₹{fmt(s?.values?.sma1_amount)}
-                                </span>
+                              <td data-label="Next 3 Days">
+                                {next3Items.length ? (
+                                  <div>
+                                    <b>₹{fmt(next3Amt)}</b>
+                                    <small>{next3Items.length} accounts</small>
+                                  </div>
+                                ) : (
+                                  <span style={{ color: '#64748b' }}>—</span>
+                                )}
                               </td>
-                              <td data-label="SMA-2">
-                                <div>
-                                  <small>Yday: {r?.sma2_yesterday_count || 0} accts · ₹{fmt(r?.sma2_yesterday_amount)}</small>
-                                </div>
-                                <span style={{ color: s?.values?.sma2_amount ? '#059669' : '#64748b', fontWeight: 600 }}>
-                                  Elim: {s?.values?.sma2_count || 0} accts · ₹{fmt(s?.values?.sma2_amount)}
-                                </span>
+                              <td data-label="Total Scheduled">
+                                <b>₹{fmt(totalAmt)}</b>
+                                <small>{branchItems.length} accounts</small>
                               </td>
-                              <td data-label="Total Eliminated">
-                                <b style={{ color: hasElim ? '#059669' : '#64748b' }}>₹{fmt(totalElim)}</b>
-                                {s?.values?.notes && <small style={{ display: 'block', maxWidth: 200, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{s.values.notes}</small>}
+                              <td data-label="Cleared">
+                                <b style={{ color: compCount ? '#059669' : '#64748b' }}>₹{fmt(compAmt)}</b>
+                                <small>{compCount} of {branchItems.length} paid</small>
                               </td>
                               <td data-label="Status">
-                                <span className={'badge ' + (hasElim ? 'reviewed' : s ? 'submitted' : hasOverdue ? 'clarification' : 'pending')}>
-                                  {hasElim ? 'Eliminations Reported' : s ? 'Reported Nil' : 'Pending'}
+                                <span
+                                  className={
+                                    'badge ' +
+                                    (todayPend === 0 && branchItems.length > 0
+                                      ? 'reviewed'
+                                      : todayPend > 0
+                                        ? 'clarification'
+                                        : 'pending')
+                                  }
+                                >
+                                  {branchItems.length === 0
+                                    ? 'No accounts due'
+                                    : todayPend > 0
+                                      ? `${todayPend} due today pending`
+                                      : `${pct}% cleared`}
                                 </span>
                               </td>
                               <td>
@@ -628,10 +635,10 @@ export default function SmaPortal() {
                                   className="textbutton"
                                   onClick={() => {
                                     setSol(b.sol);
-                                    setTab('Branch follow-up');
+                                    setTab('Repayment follow-up');
                                   }}
                                 >
-                                  Follow-up <ChevronRight size={15} />
+                                  Open list <ChevronRight size={15} />
                                 </button>
                               </td>
                             </tr>
@@ -644,8 +651,8 @@ export default function SmaPortal() {
             </>
           )}
 
-          {/* TAB 2: BRANCH FOLLOW-UP */}
-          {tab === 'Branch follow-up' && (
+          {/* TAB 2: DETAILED REPAYMENT FOLLOW-UP LIST */}
+          {tab === 'Repayment follow-up' && (
             <>
               {!isBranch && (
                 <div style={{ display: 'flex', alignItems: 'center', gap: 12, marginBottom: 16 }}>
@@ -679,7 +686,9 @@ export default function SmaPortal() {
                         fontWeight: 600,
                       }}
                       href={`https://wa.me/${headContact.phone}?text=${encodeURIComponent(
-                        `IOB Dindigul SMA Follow-up: Dear Branch Head (${currentBranch?.name}), please review your SMA accounts for ${date}.`
+                        `IOB SMA Follow-up: Dear Branch Head (${currentBranch?.name}), please review repayments due today (${branchDueTodayPend.length} pending, ₹${fmt(
+                          branchDueTodayPendAmt
+                        )}) and next 3 days (${branchNext3DaysPend.length} pending, ₹${fmt(branchNext3DaysPendAmt)}).`
                       )}`}
                       target="_blank"
                       rel="noopener noreferrer"
@@ -690,418 +699,248 @@ export default function SmaPortal() {
                 </div>
               )}
 
-              {/* SECTION A: TODAY'S SMA ELIMINATIONS */}
-              <div className="panel" style={{ borderTop: '4px solid #2563eb' }}>
-                <div className="paneltop">
-                  <div>
-                    <h2>01 · Today’s SMA Eliminations (Auto-syncs with Daily Report)</h2>
-                    <p>
-                      Enter accounts and amounts resolved today. Transfers to NPA are not successful eliminations.
-                    </p>
-                  </div>
-                  <span className="badge" style={{ background: '#dcfce7', color: '#166534', fontWeight: 600 }}>
-                    Live Sync Enabled
-                  </span>
+              {/* Branch summary stats */}
+              <div className="stats">
+                <div style={{ borderLeft: '4px solid #dc2626' }}>
+                  <span style={{ color: '#dc2626', fontWeight: 700 }}>★ DUE TODAY ({date})</span>
+                  <strong style={{ color: '#b91c1c' }}>₹{fmt(branchDueTodayAmt)}</strong>
+                  <small>
+                    {branchDueToday.length} accounts ({branchDueTodayPend.length} pending ·{' '}
+                    {branchDueTodayComp.length} cleared)
+                  </small>
                 </div>
-
-                <div style={{ display: 'flex', flexDirection: 'column', gap: 14 }}>
-                  {[
-                    { key: 'sma0', label: 'SMA-0 (1 to 30 days overdue)', countVal: sma0Count, setCount: setSma0Count, amtVal: sma0Amount, setAmt: setSma0Amount },
-                    { key: 'sma1', label: 'SMA-1 (31 to 60 days overdue)', countVal: sma1Count, setCount: setSma1Count, amtVal: sma1Amount, setAmt: setSma1Amount },
-                    { key: 'sma2', label: 'SMA-2 (61 to 90 days overdue)', countVal: sma2Count, setCount: setSma2Count, amtVal: sma2Amount, setAmt: setSma2Amount },
-                  ].map((b) => {
-                    const ydayCount = snap?.[b.key + '_yesterday_count'] || 0;
-                    const ydayAmt = snap?.[b.key + '_yesterday_amount'] || 0;
-                    const mtdCount = snap?.[b.key + '_prior_count'] || 0;
-                    const mtdAmt = snap?.[b.key + '_prior_amount'] || 0;
-                    const netAmt = Math.max(0, ydayAmt - b.amtVal);
-
-                    return (
-                      <div className="smarow" key={b.key} style={{ background: '#f8fafc', padding: '14px', borderRadius: 8 }}>
-                        <div style={{ minWidth: 220 }}>
-                          <b style={{ fontSize: 14, color: '#0f172a' }}>{b.label}</b>
-                          <small style={{ display: 'block', color: '#64748b' }}>
-                            Month-end: {fmt(mtdCount)} accts / ₹{fmt(mtdAmt)}
-                          </small>
-                          <small style={{ display: 'block', color: '#475569', fontWeight: 600 }}>
-                            Yesterday: {fmt(ydayCount)} accts / ₹{fmt(ydayAmt)}
-                          </small>
-                          <small style={{ display: 'block', color: '#059669', fontWeight: 600, marginTop: 4 }}>
-                            Estimated balance: ₹{fmt(netAmt)}
-                          </small>
-                        </div>
-                        <label style={{ display: 'flex', flexDirection: 'column', gap: 4 }}>
-                          <span style={{ fontSize: 12, fontWeight: 600, color: '#475569' }}>Eliminated count</span>
-                          <input
-                            type="number"
-                            min="0"
-                            disabled={busy || isReviewer}
-                            value={b.countVal || ''}
-                            onChange={(e) => b.setCount(Number(e.target.value))}
-                            placeholder="0"
-                            style={{ padding: '8px 10px', borderRadius: 6, border: '1px solid #cbd5e1' }}
-                          />
-                        </label>
-                        <label style={{ display: 'flex', flexDirection: 'column', gap: 4 }}>
-                          <span style={{ fontSize: 12, fontWeight: 600, color: '#475569' }}>Eliminated amount (₹)</span>
-                          <input
-                            type="number"
-                            min="0"
-                            disabled={busy || isReviewer}
-                            value={b.amtVal || ''}
-                            onChange={(e) => b.setAmt(Number(e.target.value))}
-                            placeholder="₹ 0"
-                            style={{ padding: '8px 10px', borderRadius: 6, border: '1px solid #cbd5e1' }}
-                          />
-                        </label>
-                      </div>
-                    );
-                  })}
-
-                  <label style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>
-                    <span style={{ fontSize: 13, fontWeight: 600, color: '#334155' }}>
-                      SMA Recovery Notes / Strategy / Commitments
-                    </span>
-                    <textarea
-                      rows={2}
-                      disabled={busy || isReviewer}
-                      value={smaNotes}
-                      onChange={(e) => setSmaNotes(e.target.value)}
-                      placeholder="e.g. Ramalingam CIF1002341 settled in full; visited Meenakshi Traders for Friday closure commitment."
-                      style={{ padding: '10px', borderRadius: 8, border: '1px solid #cbd5e1', fontSize: 13 }}
-                    />
-                  </label>
-
-                  {!isReviewer && (
-                    <div style={{ display: 'flex', alignItems: 'center', gap: 12, marginTop: 4 }}>
-                      <button disabled={busy} onClick={saveSmaEliminations} style={{ minWidth: 260 }}>
-                        {busy ? 'Saving & Syncing…' : 'Save SMA Eliminations & Sync to Daily Report'}
-                      </button>
-                      <small style={{ color: '#64748b' }}>
-                        Saved figures will instantly show in today’s branch report on the Daily Reporting Portal.
-                      </small>
-                    </div>
-                  )}
+                <div>
+                  <span>Next 3 Days Advance Due</span>
+                  <strong style={{ color: '#0369a1' }}>₹{fmt(branchNext3DaysAmt)}</strong>
+                  <small>{branchNext3Days.length} accounts ({branchNext3DaysPend.length} pending)</small>
+                </div>
+                <div>
+                  <span>Total Due (Today + 3 Days)</span>
+                  <strong>₹{fmt(branchTotalAmt)}</strong>
+                  <small>{branchTotalCount} total accounts slated for repayment</small>
+                </div>
+                <div>
+                  <span>Total Marked Completed</span>
+                  <strong style={{ color: '#059669' }}>₹{fmt(branchTotalCompAmt)}</strong>
+                  <small>
+                    {branchTotalCompCount} cleared ({branchTotalCount ? Math.round((branchTotalCompCount / branchTotalCount) * 100) : 0}%)
+                  </small>
                 </div>
               </div>
 
-              {/* SECTION B: ACCOUNT-LEVEL SMA FOLLOW-UP */}
               <div className="panel">
                 <div className="paneltop">
                   <div>
-                    <h2>02 · Account-level Borrower Follow-up List ({branchSmaAccounts.length} accounts)</h2>
-                    <p>Track borrower contacts, promise-to-pay dates, and recovery actions.</p>
+                    <h2>Today’s Repayments Due & Next 3 Days Follow-up</h2>
+                    <p>
+                      Due dates from today ({date}) through {addDays(date, 3)}. Branch heads should mark each repayment
+                      complete once payment is received to prevent SMA slippage.
+                    </p>
                   </div>
-                  {isAdmin && (
-                    <button className="secondary" onClick={() => setTab('Upload SMA Data')}>
-                      <Upload size={15} /> Upload Accounts CSV
-                    </button>
-                  )}
+                  <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+                    <span className="badge" style={{ background: '#fee2e2', color: '#991b1b', fontWeight: 700 }}>
+                      Today: {branchDueTodayPend.length} pending
+                    </span>
+                    <span className="badge" style={{ background: '#dcfce7', color: '#166534', fontWeight: 600 }}>
+                      Total: {branchTotalCompCount} completed
+                    </span>
+                  </div>
                 </div>
 
                 <div className="toolbar" style={{ display: 'flex', gap: 10, flexWrap: 'wrap' }}>
                   <input
-                    placeholder="Search borrower name or CIF…"
+                    placeholder="Search account name or CIF…"
                     value={search}
                     onChange={(e) => setSearch(e.target.value)}
                     style={{ flex: 1, minWidth: 200 }}
                   />
-                  <select value={bucketFilter} onChange={(e) => setBucketFilter(e.target.value)}>
-                    <option value="All">All buckets</option>
-                    <option value="sma0">SMA-0 (1-30 DPD)</option>
-                    <option value="sma1">SMA-1 (31-60 DPD)</option>
-                    <option value="sma2">SMA-2 (61-90 DPD)</option>
-                  </select>
-                  <select value={statusFilter} onChange={(e) => setStatusFilter(e.target.value)}>
-                    <option value="All">All statuses</option>
-                    <option value="pending">Pending</option>
-                    <option value="contacted">Contacted</option>
-                    <option value="promised">Promise to pay</option>
-                    <option value="resolved">Resolved</option>
+                  <select value={filter} onChange={(e) => setFilter(e.target.value)}>
+                    <option value="All">All accounts (Today + 3 Days)</option>
+                    <option value="Due today">★ Due Today ({date})</option>
+                    <option value="Next 3 days">Next 3 days ({addDays(date, 1)} to {addDays(date, 3)})</option>
+                    <option value="Pending">Pending only</option>
+                    <option value="Completed">Completed only</option>
                   </select>
                 </div>
 
                 {filteredAccounts.length ? (
-                  <div style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>
-                    {filteredAccounts.map((acc: any) => {
-                      const isResolved = acc.status === 'resolved';
-                      const bucketTag = (acc.bucket || 'sma0').toUpperCase();
+                  <>
+                    <div className="tablewrap branchlist repaylist">
+                      <table>
+                        <thead>
+                          <tr>
+                            <th>BORROWER / CIF</th>
+                            <th>REPAYMENT DUE</th>
+                            <th>DUE DATE & PERIOD</th>
+                            <th>STATUS</th>
+                            <th>FOLLOW-UP / ACTIONS</th>
+                          </tr>
+                        </thead>
+                        <tbody>
+                          {visibleAccounts.map((r: any) => {
+                            const isDueToday = r.due_date === date;
+                            const isPast = r.due_date < date;
 
-                      return (
-                        <div
-                          key={acc.id}
-                          className="repayitem"
-                          style={{
-                            background: isResolved ? '#f0fdf4' : '#fff',
-                            border: `1px solid ${isResolved ? '#bbf7d0' : '#e2e8f0'}`,
-                            padding: '14px',
-                            borderRadius: 10,
-                          }}
-                        >
-                          <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', flexWrap: 'wrap', gap: 8 }}>
-                            <div>
-                              <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
-                                <b style={{ fontSize: 15, color: '#0f172a' }}>{acc.borrower_name}</b>
-                                <span
-                                  className="badge"
-                                  style={{
-                                    fontSize: 11,
-                                    background:
-                                      bucketTag === 'SMA0'
-                                        ? '#fef3c7'
-                                        : bucketTag === 'SMA1'
-                                          ? '#ffedd5'
-                                          : '#fee2e2',
-                                    color:
-                                      bucketTag === 'SMA0'
-                                        ? '#92400e'
-                                        : bucketTag === 'SMA1'
-                                          ? '#9a3412'
-                                          : '#991b1b',
-                                  }}
-                                >
-                                  {bucketTag}
-                                </span>
-                                <span
-                                  className="badge"
-                                  style={{
-                                    fontSize: 11,
-                                    background:
-                                      acc.status === 'resolved'
-                                        ? '#dcfce7'
-                                        : acc.status === 'promised'
-                                          ? '#e0e7ff'
-                                          : acc.status === 'contacted'
-                                            ? '#fef9c3'
-                                            : '#f1f5f9',
-                                    color:
-                                      acc.status === 'resolved'
-                                        ? '#166534'
-                                        : acc.status === 'promised'
-                                          ? '#3730a3'
-                                          : acc.status === 'contacted'
-                                            ? '#854d0e'
-                                            : '#475569',
-                                  }}
-                                >
-                                  {(acc.status || 'pending').toUpperCase()}
-                                </span>
-                              </div>
-                              <small style={{ color: '#64748b', display: 'block', marginTop: 2 }}>
-                                CIF: {acc.cif} {acc.dpd ? `· ${acc.dpd} Days Past Due` : ''}
-                              </small>
-                            </div>
-                            <div style={{ textAlign: 'right' }}>
-                              <span style={{ fontSize: 16, fontWeight: 700, color: '#b91c1c' }}>
-                                ₹{fmt(acc.amount)}
-                              </span>
-                              <small style={{ display: 'block', color: '#64748b' }}>Overdue amount</small>
-                            </div>
-                          </div>
-
-                          <div
-                            style={{
-                              display: 'flex',
-                              flexWrap: 'wrap',
-                              gap: 12,
-                              marginTop: 10,
-                              alignItems: 'center',
-                              justifyContent: 'space-between',
-                              background: '#f8fafc',
-                              padding: '8px 12px',
-                              borderRadius: 6,
-                            }}
-                          >
-                            <div style={{ display: 'flex', alignItems: 'center', gap: 10, flexWrap: 'wrap' }}>
-                              {acc.phone && (
-                                <>
-                                  <a
-                                    href={`tel:+${acc.phone}`}
-                                    className="secondary"
+                            return (
+                              <tr
+                                key={r.id}
+                                style={{
+                                  background: isDueToday
+                                    ? r.completed
+                                      ? '#f0fdf4'
+                                      : '#fff1f2'
+                                    : r.completed
+                                      ? '#f0fdf4'
+                                      : '#fff',
+                                }}
+                              >
+                                <td>
+                                  <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+                                    <b>{r.account_name}</b>
+                                    {isDueToday && (
+                                      <span
+                                        className="badge"
+                                        style={{
+                                          background: '#dc2626',
+                                          color: '#fff',
+                                          fontSize: 10,
+                                          fontWeight: 700,
+                                          padding: '2px 6px',
+                                        }}
+                                      >
+                                        DUE TODAY
+                                      </span>
+                                    )}
+                                  </div>
+                                  <small>CIF: {r.cif}</small>
+                                  {!isBranch && <small style={{ color: '#0369a1' }}>SOL {r.sol}</small>}
+                                </td>
+                                <td data-label="Repayment due">
+                                  <b style={{ color: r.completed ? '#059669' : isDueToday ? '#dc2626' : '#b91c1c', fontSize: 15 }}>
+                                    ₹{fmt(r.due_amount)}
+                                  </b>
+                                  <small>{r.completed ? 'Cleared in CBS' : isDueToday ? '★ Critical today' : 'Scheduled'}</small>
+                                </td>
+                                <td data-label="Due date">
+                                  <b>{r.due_date}</b>
+                                  <small
                                     style={{
-                                      display: 'inline-flex',
-                                      alignItems: 'center',
-                                      gap: 4,
-                                      padding: '4px 8px',
-                                      fontSize: 11,
-                                      textDecoration: 'none',
+                                      color: isDueToday ? '#b91c1c' : isPast ? '#991b1b' : '#0369a1',
+                                      fontWeight: isDueToday ? 700 : 600,
                                     }}
                                   >
-                                    <PhoneCall size={12} /> {acc.phone}
-                                  </a>
-                                  <a
-                                    href={`https://wa.me/${acc.phone}?text=${encodeURIComponent(
-                                      `Indian Overseas Bank ${currentBranch?.name} Branch: Dear ${acc.borrower_name}, please clear your overdue amount of ₹${fmt(
-                                        acc.amount
-                                      )} to regularize your loan account.`
-                                    )}`}
-                                    target="_blank"
-                                    rel="noopener noreferrer"
-                                    style={{
-                                      display: 'inline-flex',
-                                      alignItems: 'center',
-                                      gap: 4,
-                                      background: '#25D366',
-                                      color: '#fff',
-                                      padding: '4px 8px',
-                                      borderRadius: 4,
-                                      fontSize: 11,
-                                      textDecoration: 'none',
-                                      fontWeight: 600,
-                                    }}
-                                  >
-                                    <MessageSquare size={12} /> WhatsApp
-                                  </a>
-                                </>
-                              )}
-                              {acc.promise_date && (
-                                <span style={{ fontSize: 12, color: '#4338ca', fontWeight: 500 }}>
-                                  Promise date: {acc.promise_date}
-                                </span>
-                              )}
-                              {acc.remarks && (
-                                <span style={{ fontSize: 12, color: '#475569', fontStyle: 'italic' }}>
-                                  "{acc.remarks}"
-                                </span>
-                              )}
-                            </div>
+                                    {dueLabel(r.due_date)}
+                                  </small>
+                                </td>
+                                <td data-label="Status">
+                                  <span className={'badge ' + (r.completed ? 'reviewed' : isDueToday ? 'clarification' : 'pending')}>
+                                    {r.completed ? 'Completed' : 'Pending'}
+                                  </span>
+                                  {r.completed && r.completedBy && (
+                                    <small style={{ display: 'block', marginTop: 2 }}>By: {r.completedBy}</small>
+                                  )}
+                                </td>
+                                <td data-label="Actions">
+                                  <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap', alignItems: 'center' }}>
+                                    {(isBranch || isAdmin) && (
+                                      <button
+                                        type="button"
+                                        className={r.completed ? 'secondary' : ''}
+                                        disabled={busy}
+                                        onClick={() => toggleRepaymentStatus(r.sol, r.id, r.completed)}
+                                        style={{
+                                          fontSize: 12,
+                                          padding: '6px 12px',
+                                          background: r.completed ? undefined : isDueToday ? '#dc2626' : undefined,
+                                          borderColor: r.completed ? undefined : isDueToday ? '#b91c1c' : undefined,
+                                        }}
+                                      >
+                                        {r.completed ? 'Completed · Undo' : isDueToday ? '★ Mark Paid Today' : 'Mark Complete'}
+                                      </button>
+                                    )}
+                                    <a
+                                      className="secondary button"
+                                      href={`https://wa.me/?text=${encodeURIComponent(
+                                        `Indian Overseas Bank ${currentBranch?.name || ''} Branch: Dear ${r.account_name}, your loan installment of ₹${fmt(
+                                          r.due_amount
+                                        )} is due for repayment ${isDueToday ? 'TODAY (' + date + ')' : 'on ' + r.due_date}. Please ensure payment today to keep your account regular and prevent SMA classification.`
+                                      )}`}
+                                      target="_blank"
+                                      rel="noopener noreferrer"
+                                      style={{
+                                        display: 'inline-flex',
+                                        alignItems: 'center',
+                                        gap: 4,
+                                        fontSize: 11,
+                                        padding: '6px 10px',
+                                        textDecoration: 'none',
+                                      }}
+                                    >
+                                      <MessageSquare size={13} color="#25D366" /> Share reminder
+                                    </a>
+                                  </div>
+                                </td>
+                              </tr>
+                            );
+                          })}
+                        </tbody>
+                      </table>
+                    </div>
 
-                            <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
-                              {!isReviewer && !isResolved && (
-                                <button
-                                  className="secondary"
-                                  style={{
-                                    fontSize: 11,
-                                    padding: '5px 10px',
-                                    background: '#ecfdf5',
-                                    borderColor: '#a7f3d0',
-                                    color: '#065f46',
-                                    fontWeight: 600,
-                                  }}
-                                  onClick={() => resolveAndAddElimination(acc)}
-                                >
-                                  ✓ Mark Resolved & Add to Eliminations
-                                </button>
-                              )}
-                              {!isReviewer && (
-                                <select
-                                  value={acc.status || 'pending'}
-                                  onChange={(e) => updateAccountStatus(acc.id, e.target.value, acc.remarks, acc.promise_date)}
-                                  style={{ fontSize: 11, padding: '4px 8px', borderRadius: 6, border: '1px solid #cbd5e1' }}
-                                >
-                                  <option value="pending">Pending</option>
-                                  <option value="contacted">Contacted</option>
-                                  <option value="promised">Promise to pay</option>
-                                  <option value="resolved">Resolved</option>
-                                </select>
-                              )}
-                            </div>
-                          </div>
-                        </div>
-                      );
-                    })}
-                  </div>
+                    {filteredAccounts.length > 50 && (
+                      <button
+                        type="button"
+                        className="secondary"
+                        style={{ marginTop: 12, width: '100%' }}
+                        onClick={() => setShowAll(!showAll)}
+                      >
+                        {showAll ? 'Show top 50 accounts' : `Show all ${filteredAccounts.length} accounts`}
+                      </button>
+                    )}
+                  </>
                 ) : (
                   <div className="empty">
-                    <ShieldAlert size={32} />
-                    <h3>No SMA borrower accounts found</h3>
+                    <CalendarClock size={32} />
+                    <h3>No repayments found</h3>
                     <p>
-                      {branchSmaAccounts.length
+                      {branchRepayments.length
                         ? 'No accounts match the current filter.'
-                        : 'No borrower accounts uploaded yet for this branch. Use the form above to record bucket-level eliminations.'}
+                        : 'No accounts slated for repayment today or in the next 3 days for this branch.'}
                     </p>
-                  </div>
-                )}
-              </div>
-
-              {/* SECTION C: REGIONAL DESK & SRM DIRECTIONS */}
-              <div className="panel">
-                <h2>03 · Regional Desk & SRM Recovery Directions</h2>
-                <div style={{ display: 'flex', flexDirection: 'column', gap: 10, marginBottom: 14 }}>
-                  {data.reviews
-                    .filter((r: any) => r.sol === sol)
-                    .map((r: any) => (
-                      <div
-                        key={r.id}
-                        className={'reviewitem ' + (r.status === 'srm_direction' ? 'srm-direction-card' : '')}
-                        style={{
-                          padding: 12,
-                          borderRadius: 8,
-                          background: r.status === 'srm_direction' ? '#fffbeb' : '#f8fafc',
-                          border: `1px solid ${r.status === 'srm_direction' ? '#fde68a' : '#e2e8f0'}`,
-                        }}
-                      >
-                        <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: 4 }}>
-                          <b>
-                            {r.status === 'srm_direction' ? '★ SENIOR REGIONAL MANAGER (SRM) DIRECTION' : 'Regional Review Desk'}
-                          </b>
-                          <small style={{ color: '#64748b' }}>{r.at?.slice(0, 16).replace('T', ' ')} IST</small>
-                        </div>
-                        <p style={{ margin: 0, fontSize: 13, color: '#1e293b' }}>{r.text}</p>
-                        <small style={{ display: 'block', marginTop: 4, color: '#64748b' }}>By: {r.by}</small>
-                      </div>
-                    ))}
-                  {!data.reviews.filter((r: any) => r.sol === sol).length && (
-                    <p style={{ color: '#64748b', fontSize: 13 }}>No regional remarks posted for this branch yet.</p>
-                  )}
-                </div>
-
-                {isReviewer && sub && (
-                  <div style={{ display: 'flex', flexDirection: 'column', gap: 10, background: '#f8fafc', padding: 14, borderRadius: 8 }}>
-                    <b>Issue SMA Follow-up Direction</b>
-                    <textarea
-                      rows={2}
-                      value={reviewText}
-                      onChange={(e) => setReviewText(e.target.value)}
-                      placeholder="Enter recovery guidance or priority SMA direction for branch head…"
-                      style={{ padding: 10, borderRadius: 6, border: '1px solid #cbd5e1' }}
-                    />
-                    <div style={{ display: 'flex', gap: 10, alignItems: 'center' }}>
-                      <select value={reviewStatus} onChange={(e) => setReviewStatus(e.target.value)}>
-                        <option value="reviewed">Standard review</option>
-                        {isSrm && <option value="srm_direction">★ Issue as SRM Direction</option>}
-                      </select>
-                      <button
-                        disabled={busy || !reviewText.trim()}
-                        onClick={async () => {
-                          await act(
-                            {
-                              action: 'review',
-                              sol,
-                              revision: sub.revision,
-                              text: reviewText,
-                              status: reviewStatus,
-                            },
-                            'Direction issued and added to queue.'
-                          );
-                          setReviewText('');
-                        }}
-                      >
-                        Post Direction
-                      </button>
-                    </div>
                   </div>
                 )}
               </div>
             </>
           )}
 
-          {/* TAB 3: UPLOAD SMA DATA (ADMIN) */}
-          {tab === 'Upload SMA Data' && isAdmin && (
+          {/* TAB 3: UPLOAD REPAYMENTS (ADMIN ONLY) */}
+          {tab === 'Upload repayments' && isAdmin && (
             <div className="panel">
               <div className="paneltop">
                 <div>
-                  <h2>Upload Regional SMA Accounts (CSV)</h2>
-                  <p>Bulk upload Special Mention Accounts across all 56 branches to power account-level recovery tracking.</p>
+                  <h2>Upload Repayment Accounts (CSV)</h2>
+                  <p>Bulk upload loan accounts with repayments falling due today and in the next 3 days across all 56 branches.</p>
                 </div>
-                <a
-                  className="secondary button"
-                  href="/IOB_sma_accounts_template.csv"
-                  download="IOB_sma_accounts_template.csv"
-                  style={{ display: 'inline-flex', alignItems: 'center', gap: 6, textDecoration: 'none' }}
+                <button
+                  type="button"
+                  className="secondary"
+                  onClick={() => {
+                    const sample =
+                      'branch_code,cif,account_name,due_amount,due_date\n0174,CIF1002341,Senthil Nathan K,185000,' +
+                      date +
+                      '\n0332,CIF1005892,Meenakshi Traders,420000,' +
+                      date +
+                      '\n0376,CIF2001452,Palanisamy Murugan,650000,' +
+                      addDays(date, 1) +
+                      '\n0175,CIF3004519,Lakshmi Cotton Mills,320000,' +
+                      addDays(date, 2) +
+                      '\n';
+                    downloadCsv('IOB_repayments_template.csv', sample);
+                  }}
+                  style={{ display: 'inline-flex', alignItems: 'center', gap: 6 }}
                 >
                   <Download size={15} /> Download template CSV
-                </a>
+                </button>
               </div>
 
               <div
@@ -1115,10 +954,10 @@ export default function SmaPortal() {
                 }}
               >
                 <Upload size={36} color="#64748b" style={{ margin: '0 auto 10px' }} />
-                <h3>Select SMA Accounts CSV File</h3>
+                <h3>Select Repayments CSV File</h3>
                 <p style={{ color: '#64748b', fontSize: 13, maxWidth: 500, margin: '0 auto 16px' }}>
-                  Required columns: <code>branch_code</code>, <code>cif</code>, <code>borrower_name</code>, <code>bucket</code> (SMA0, SMA1, SMA2), <code>overdue_amount</code>.
-                  Optional: <code>dpd</code>, <code>phone</code>, <code>status</code>, <code>remarks</code>.
+                  Required columns: <code>branch_code</code> (SOL), <code>cif</code>, <code>account_name</code>,{' '}
+                  <code>due_amount</code>, <code>due_date</code> (YYYY-MM-DD or DD/MM/YYYY).
                 </p>
                 <input
                   type="file"
@@ -1127,23 +966,29 @@ export default function SmaPortal() {
                   onChange={handleCsvUpload}
                   disabled={busy}
                   style={{ display: 'none' }}
-                  id="sma-file-input"
+                  id="repay-file-input"
                 />
                 <label
-                  htmlFor="sma-file-input"
+                  htmlFor="repay-file-input"
                   className="button"
-                  style={{ display: 'inline-flex', alignItems: 'center', gap: 8, cursor: 'pointer', padding: '10px 20px' }}
+                  style={{
+                    display: 'inline-flex',
+                    alignItems: 'center',
+                    gap: 8,
+                    cursor: 'pointer',
+                    padding: '10px 20px',
+                  }}
                 >
                   <Upload size={16} /> {busy ? 'Processing CSV…' : 'Choose CSV file'}
                 </label>
               </div>
 
               <div style={{ background: '#f1f5f9', padding: 14, borderRadius: 8, fontSize: 12, color: '#475569' }}>
-                <b>CSV Upload Specifications:</b>
+                <b>Repayment List Specifications:</b>
                 <ul style={{ margin: '6px 0 0 16px', padding: 0 }}>
-                  <li>Validates 4-digit SOL against the official 56 Dindigul region branches.</li>
-                  <li>Re-uploading preserves existing follow-up remarks and borrower status.</li>
-                  <li>Branch heads will only see accounts belonging to their assigned SOL.</li>
+                  <li>Includes accounts due <b>today ({date})</b> and through the <b>next 3 days ({addDays(date, 3)})</b>.</li>
+                  <li>Re-uploading preserves existing completion status marked by branch heads.</li>
+                  <li>Branch heads see only repayments belonging to their assigned SOL.</li>
                 </ul>
               </div>
             </div>
@@ -1151,7 +996,7 @@ export default function SmaPortal() {
         </div>
 
         <footer>
-          Indian Overseas Bank · Dindigul Regional SMA Follow-up Portal · <span>All times are IST</span>
+          Indian Overseas Bank · Dindigul Regional SMA Prevention Portal · <span>All times are IST</span>
         </footer>
       </main>
     </div>
