@@ -49,10 +49,31 @@
   align-items: center;
   gap: 20px;
   white-space: nowrap;
-  animation: tickerScroll 45s linear infinite;
+  animation: tickerScroll 115s linear infinite;
 }
-.tickertape-content:hover {
+.tickertape-wrap:hover .tickertape-content,
+.tickertape-wrap:active .tickertape-content,
+.tickertape-wrap:focus-within .tickertape-content {
   animation-play-state: paused;
+}
+.tickertape-pause-btn {
+  background: rgba(255, 255, 255, 0.18);
+  color: #fff;
+  border: 1px solid rgba(255, 255, 255, 0.35);
+  border-radius: 4px;
+  font-size: 10px;
+  font-weight: 700;
+  padding: 3px 8px;
+  cursor: pointer;
+  margin-left: 8px;
+  min-height: 22px;
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  line-height: 1;
+}
+.tickertape-pause-btn:hover {
+  background: rgba(255, 255, 255, 0.35);
 }
 .tickertape-item {
   display: inline-flex;
@@ -93,5 +114,158 @@
 @keyframes tickerScroll {
   0% { transform: translateX(0); }
   100% { transform: translateX(-50%); }
+}
+
+/* Comprehensive Responsive Mobile Layout */
+@media (max-width: 860px) {
+  .shell {
+    display: flex !important;
+    flex-direction: column !important;
+    min-height: 100vh;
+    width: 100% !important;
+    max-width: 100vw !important;
+    overflow-x: hidden !important;
+  }
+  aside {
+    position: static !important;
+    width: 100% !important;
+    inset: auto !important;
+    height: auto !important;
+    min-height: auto !important;
+    padding: 12px 14px 10px !important;
+    box-sizing: border-box !important;
+  }
+  aside .brand {
+    margin-bottom: 10px !important;
+  }
+  aside nav {
+    display: flex !important;
+    flex-wrap: wrap !important;
+    gap: 6px !important;
+  }
+  aside nav button {
+    flex: 1 1 calc(50% - 6px) !important;
+    min-width: 120px !important;
+    padding: 8px 10px !important;
+    font-size: 11px !important;
+    min-height: 38px !important;
+    white-space: normal !important;
+    margin: 0 !important;
+    justify-content: flex-start !important;
+  }
+  aside .sidebottom {
+    display: none !important;
+  }
+  main {
+    margin-left: 0 !important;
+    width: 100% !important;
+    max-width: 100vw !important;
+    min-width: 0 !important;
+    box-sizing: border-box !important;
+    overflow-x: hidden !important;
+  }
+  header {
+    height: auto !important;
+    min-height: 52px !important;
+    padding: 8px 12px !important;
+    flex-wrap: wrap !important;
+    gap: 6px !important;
+    position: sticky !important;
+    top: 0 !important;
+    z-index: 30 !important;
+  }
+  .crumb {
+    width: 100% !important;
+    font-size: 11px !important;
+    gap: 4px !important;
+    flex-wrap: wrap !important;
+  }
+  .headeractions {
+    width: 100% !important;
+    display: flex !important;
+    flex-wrap: wrap !important;
+    align-items: center !important;
+    gap: 6px !important;
+  }
+  .headeractions button.secondary {
+    padding: 4px 8px !important;
+    font-size: 11px !important;
+    min-height: 30px !important;
+  }
+  .content {
+    padding: 14px 12px 30px !important;
+    width: 100% !important;
+    max-width: 100vw !important;
+    box-sizing: border-box !important;
+    overflow-x: hidden !important;
+  }
+  .title {
+    display: flex !important;
+    flex-direction: column !important;
+    align-items: flex-start !important;
+    gap: 8px !important;
+    margin-bottom: 14px !important;
+  }
+  .title h1 {
+    font-size: 20px !important;
+    line-height: 1.25 !important;
+    letter-spacing: -0.5px !important;
+    margin: 2px 0 4px !important;
+    word-break: break-word !important;
+  }
+  .title p {
+    font-size: 12px !important;
+    margin-bottom: 4px !important;
+  }
+  .date {
+    width: 100% !important;
+    display: flex !important;
+    align-items: center !important;
+    justify-content: space-between !important;
+    margin: 0 !important;
+  }
+  .date input {
+    width: auto !important;
+    flex: 1 !important;
+    max-width: 180px !important;
+  }
+  .stats {
+    grid-template-columns: 1fr 1fr !important;
+    gap: 10px !important;
+  }
+  .stats > div {
+    padding: 12px 14px !important;
+  }
+  .stats strong {
+    font-size: 20px !important;
+    line-height: 1.3 !important;
+  }
+  .tickertape-wrap {
+    flex-direction: column !important;
+    align-items: stretch !important;
+    border-radius: 8px !important;
+    margin-bottom: 14px !important;
+  }
+  .tickertape-label {
+    width: 100% !important;
+    justify-content: space-between !important;
+    padding: 6px 10px !important;
+    font-size: 10px !important;
+    border-bottom: 1px solid rgba(255, 255, 255, 0.1) !important;
+    box-sizing: border-box !important;
+  }
+  .tickertape-track {
+    padding: 7px 0 !important;
+    overflow-x: auto !important;
+    -webkit-overflow-scrolling: touch !important;
+  }
+  .tickertape-content {
+    animation: tickerScroll 140s linear infinite !important;
+    gap: 12px !important;
+  }
+  .tickertape-item {
+    font-size: 11px !important;
+    padding: 3px 8px !important;
+  }
 }
 

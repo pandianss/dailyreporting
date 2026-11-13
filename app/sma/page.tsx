@@ -17,7 +17,12 @@ import {
   Sparkles,
   Award,
   Printer,
-  Check
+  Check,
+  UserCheck,
+  PhoneCall,
+  Phone,
+  Pause,
+  Play
 } from 'lucide-react';
 import Login from '../Login';
 import { parseRepaymentsCSV, validateRepayments, addDays } from '../model.mjs';
@@ -43,6 +48,9 @@ export default function SmaPortal() {
   const [busy, setBusy] = useState(false);
   const [showAll, setShowAll] = useState(false);
   const [selectedCertRoll, setSelectedCertRoll] = useState<string | null>(null);
+  const [tickerPaused, setTickerPaused] = useState(false);
+  const [readyRefFilter, setReadyRefFilter] = useState<'all' | 'logged' | 'pending' | 'attended' | 'cleared'>('all');
+  const [readyRefSearch, setReadyRefSearch] = useState('');
 
   const fileRef = useRef<HTMLInputElement>(null);
 
@@ -359,16 +367,25 @@ export default function SmaPortal() {
     const pct = branchItems.length ? Math.round((compCount / branchItems.length) * 100) : 100;
     const isLoggedIn = loggedInSols.has(b.sol);
     const loginInfo = branchLogins.find((l: any) => l.sol === b.sol);
+    const todayAttended = todayItems.filter(
+      (r: any) => r.completed || (r.history && r.history.length > 0) || r.followup_notes
+    );
+    const branchGrant = (data.grants || []).find((g: any) => g.sol === b.sol && g.role === 'branch');
+    const headPhone = loginInfo?.phone || branchGrant?.phone || b.phone || '';
+    const headName = loginInfo?.name || branchGrant?.name || b.name + ' Branch Head';
 
     return {
       branch: b,
       isLoggedIn,
       loginInfo,
+      headPhone,
+      headName,
       branchItems,
       todayItems,
       todayAmt,
       todayComp,
       todayPend,
+      todayAttended,
       next3Items,
       next3Amt,
       totalAmt,
@@ -485,9 +502,343 @@ export default function SmaPortal() {
   const navItems = [
     ...(!isBranch ? [['Overview', LayoutDashboard]] : []),
     ['Repayment follow-up', CalendarClock],
+    ...(!isBranch ? [['Branch Activity & Logins', UserCheck]] : []),
     ['Appreciation & Certificates', Award],
     ...(isAdmin ? [['Upload repayments', Upload]] : []),
   ];
+
+  const renderReadyReference = (isFullTab = false) => {
+    const totalBranches = data.branches?.length || 56;
+    const loggedCount = branchLogins.length;
+    const pendingCount = totalBranches - loggedCount;
+    const attendedBranches = branchMetrics.filter((m: any) => m.todayAttended.length > 0).length;
+    const allClearedBranches = branchMetrics.filter(
+      (m: any) => m.todayItems.length > 0 && m.todayPend === 0
+    ).length;
+
+    const filteredMetrics = branchMetrics.filter((m: any) => {
+      const q = readyRefSearch.toLowerCase().trim();
+      const matchSearch =
+        !q ||
+        m.branch.name.toLowerCase().includes(q) ||
+        m.branch.sol.includes(q) ||
+        m.headName.toLowerCase().includes(q) ||
+        m.headPhone.includes(q);
+
+      if (!matchSearch) return false;
+
+      if (readyRefFilter === 'logged') return m.isLoggedIn;
+      if (readyRefFilter === 'pending') return !m.isLoggedIn;
+      if (readyRefFilter === 'attended') return m.todayAttended.length > 0;
+      if (readyRefFilter === 'cleared') return m.todayItems.length > 0 && m.todayPend === 0;
+      return true;
+    });
+
+    return (
+      <div className="panel" style={{ borderTop: '4px solid #1e40af', marginBottom: 24 }}>
+        <div className="paneltop" style={{ flexWrap: 'wrap', gap: 12 }}>
+          <div>
+            <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+              <span
+                style={{
+                  background: '#eff6ff',
+                  color: '#1d4ed8',
+                  padding: '4px 8px',
+                  borderRadius: 6,
+                  fontSize: 11,
+                  fontWeight: 700,
+                  display: 'inline-flex',
+                  alignItems: 'center',
+                  gap: 5,
+                }}
+              >
+                <UserCheck size={14} /> READY REFERENCE AUDIT
+              </span>
+              <h2>Branch Login & Case Attendance Status</h2>
+            </div>
+            <p>
+              Real-time audit of all {totalBranches} branches: login activity, borrower cases attended today ({date}), and 1-click reminders.
+            </p>
+          </div>
+          <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap' }}>
+            <button
+              className="secondary"
+              onClick={() => {
+                const header =
+                  'SOL,Branch Name,Head Name,Head Mobile,Login Status,Login Time,Today Due Count,Today Due Amount,Attended Count,Cleared Count,Pending Count\n';
+                const rows = branchMetrics
+                  .map((m: any) =>
+                    [
+                      m.branch.sol,
+                      `"${m.branch.name}"`,
+                      `"${m.headName}"`,
+                      m.headPhone,
+                      m.isLoggedIn ? 'Logged In' : 'Pending Login',
+                      m.loginInfo?.lastActive
+                        ? new Date(m.loginInfo.lastActive).toLocaleTimeString('en-IN', {
+                            timeZone: 'Asia/Kolkata',
+                          })
+                        : '-',
+                      m.todayItems.length,
+                      m.todayAmt,
+                      m.todayAttended.length,
+                      m.todayComp.length,
+                      m.todayPend,
+                    ].join(',')
+                  )
+                  .join('\n');
+                downloadCsv(`IOB_Branch_Login_Attendance_${date}.csv`, header + rows);
+              }}
+            >
+              <Download size={14} /> Export Attendance CSV
+            </button>
+            {!isFullTab && (
+              <button
+                className="secondary"
+                onClick={() => setTab('Branch Activity & Logins')}
+                style={{ background: '#eff6ff', color: '#1d4ed8', borderColor: '#bfdbfe', fontWeight: 600 }}
+              >
+                Detailed audit tab →
+              </button>
+            )}
+          </div>
+        </div>
+
+        {/* 4 Stat KPI Cards */}
+        <div className="stats" style={{ marginTop: 14 }}>
+          <div style={{ borderLeft: '4px solid #059669' }}>
+            <span style={{ color: '#059669', fontWeight: 700 }}>🟢 LOGGED IN TODAY</span>
+            <strong style={{ color: '#047857' }}>
+              {loggedCount} <small style={{ fontSize: 16, color: '#64748b' }}>/ {totalBranches}</small>
+            </strong>
+            <small>{Math.round((loggedCount / totalBranches) * 100)}% branch participation</small>
+          </div>
+          <div style={{ borderLeft: '4px solid #dc2626' }}>
+            <span style={{ color: '#dc2626', fontWeight: 700 }}>⚠️ PENDING LOGIN</span>
+            <strong style={{ color: '#b91c1c' }}>{pendingCount}</strong>
+            <small>Branches not yet logged in today</small>
+          </div>
+          <div style={{ borderLeft: '4px solid #0284c7' }}>
+            <span style={{ color: '#0284c7', fontWeight: 700 }}>📋 CASES ATTENDED</span>
+            <strong style={{ color: '#0369a1' }}>
+              {branchMetrics.reduce((sum: number, m: any) => sum + m.todayAttended.length, 0)}{' '}
+              <small style={{ fontSize: 16, color: '#64748b' }}>
+                / {branchMetrics.reduce((sum: number, m: any) => sum + m.todayItems.length, 0)}
+              </small>
+            </strong>
+            <small>{attendedBranches} branches actively attending cases</small>
+          </div>
+          <div style={{ borderLeft: '4px solid #7c3aed' }}>
+            <span style={{ color: '#7c3aed', fontWeight: 700 }}>★ 100% CLEARED</span>
+            <strong style={{ color: '#6d28d9' }}>{allClearedBranches}</strong>
+            <small>Branches with 0 pending accounts</small>
+          </div>
+        </div>
+
+        {/* Filters & Search */}
+        <div className="toolbar" style={{ flexWrap: 'wrap', gap: 8, marginTop: 16 }}>
+          <input
+            placeholder="Search branch name, SOL, manager..."
+            value={readyRefSearch}
+            onChange={(e) => setReadyRefSearch(e.target.value)}
+            style={{ maxWidth: 280 }}
+          />
+          <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap' }}>
+            {[
+              { id: 'all', label: `All (${totalBranches})` },
+              { id: 'logged', label: `🟢 Logged In (${loggedCount})` },
+              { id: 'pending', label: `⚠️ Pending Login (${pendingCount})` },
+              { id: 'attended', label: `✓ Attended Cases (${attendedBranches})` },
+              { id: 'cleared', label: `★ 100% Cleared (${allClearedBranches})` },
+            ].map((f) => (
+              <button
+                key={f.id}
+                type="button"
+                className={readyRefFilter === f.id ? '' : 'secondary'}
+                onClick={() => setReadyRefFilter(f.id as any)}
+                style={{
+                  fontSize: 12,
+                  padding: '6px 12px',
+                  borderRadius: 20,
+                  fontWeight: 600,
+                  minHeight: 32,
+                }}
+              >
+                {f.label}
+              </button>
+            ))}
+          </div>
+        </div>
+
+        {/* Table / List */}
+        <div className="tablewrap branchlist">
+          <table>
+            <thead>
+              <tr>
+                <th>BRANCH & SOL</th>
+                <th>LOGIN STATUS</th>
+                <th>BRANCH HEAD</th>
+                <th>TODAY'S DUE ACCOUNTS</th>
+                <th>ATTENDANCE & PROGRESS</th>
+                <th>DIRECT ACTIONS</th>
+              </tr>
+            </thead>
+            <tbody>
+              {filteredMetrics.map((m: any) => {
+                const loginTime = m.loginInfo?.lastActive
+                  ? new Date(m.loginInfo.lastActive).toLocaleTimeString('en-IN', {
+                      timeZone: 'Asia/Kolkata',
+                      hour: '2-digit',
+                      minute: '2-digit',
+                    })
+                  : null;
+                const cleanPhone = m.headPhone.replace(/\D/g, '');
+                const waPhone = cleanPhone.startsWith('91') ? cleanPhone : cleanPhone ? `91${cleanPhone}` : '';
+                const waMsg = `Dear Branch Head (${m.branch.name} - SOL ${m.branch.sol}),\n\nDaily SMA Prevention Alert: ${
+                  !m.isLoggedIn ? 'You have not logged in yet today. ' : ''
+                }You have ${m.todayItems.length} borrower repayment accounts due today totaling ₹${fmt(m.todayAmt)} (${m.todayPend} pending). Please attend to them immediately on the portal to prevent slippage.\n\nPortal: https://dailyreport-sma-9265a.web.app/`;
+
+                return (
+                  <tr key={`ready-${m.branch.sol}`} style={{ background: m.isLoggedIn ? '#fcfdfd' : '#fff' }}>
+                    <td>
+                      <b>{m.branch.name}</b>
+                      <small>SOL {m.branch.sol}</small>
+                    </td>
+                    <td>
+                      {m.isLoggedIn ? (
+                        <span
+                          className="badge"
+                          style={{
+                            background: '#dcfce7',
+                            color: '#166534',
+                            fontWeight: 700,
+                            display: 'inline-flex',
+                            alignItems: 'center',
+                            gap: 4,
+                          }}
+                        >
+                          <CheckCircle2 size={12} /> Logged in {loginTime ? `at ${loginTime}` : 'today'}
+                        </span>
+                      ) : (
+                        <span
+                          className="badge"
+                          style={{
+                            background: '#fee2e2',
+                            color: '#991b1b',
+                            fontWeight: 700,
+                            display: 'inline-flex',
+                            alignItems: 'center',
+                            gap: 4,
+                          }}
+                        >
+                          <AlertTriangle size={12} /> Not logged in
+                        </span>
+                      )}
+                    </td>
+                    <td>
+                      <div style={{ fontWeight: 600 }}>{m.headName}</div>
+                      <small>{m.headPhone ? `+${m.headPhone}` : 'No phone listed'}</small>
+                    </td>
+                    <td>
+                      {m.todayItems.length ? (
+                        <div>
+                          <b style={{ color: m.todayPend ? '#b91c1c' : '#059669' }}>₹{fmt(m.todayAmt)}</b>
+                          <small style={{ color: m.todayPend ? '#dc2626' : '#166534', fontWeight: 600 }}>
+                            {m.todayComp.length}/{m.todayItems.length} accounts cleared
+                          </small>
+                        </div>
+                      ) : (
+                        <span style={{ color: '#64748b' }}>No accounts due today</span>
+                      )}
+                    </td>
+                    <td>
+                      <div style={{ minWidth: 140 }}>
+                        <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: 11, marginBottom: 3 }}>
+                          <span>Attended: <b>{m.todayAttended.length}</b>/{m.todayItems.length}</span>
+                          <span style={{ color: m.todayPend === 0 && m.todayItems.length > 0 ? '#059669' : '#64748b', fontWeight: 700 }}>
+                            {m.todayItems.length ? Math.round((m.todayComp.length / m.todayItems.length) * 100) : 100}%
+                          </span>
+                        </div>
+                        <div style={{ width: '100%', height: 6, background: '#e2e8f0', borderRadius: 3, overflow: 'hidden' }}>
+                          <div
+                            style={{
+                              height: '100%',
+                              width: `${m.todayItems.length ? Math.round((m.todayComp.length / m.todayItems.length) * 100) : 100}%`,
+                              background: m.todayPend === 0 && m.todayItems.length > 0 ? '#10b981' : '#3b82f6',
+                            }}
+                          />
+                        </div>
+                        {m.todayPend > 0 && (
+                          <small style={{ color: '#dc2626', fontWeight: 600 }}>★ {m.todayPend} pending</small>
+                        )}
+                      </div>
+                    </td>
+                    <td>
+                      <div style={{ display: 'flex', alignItems: 'center', gap: 6, flexWrap: 'wrap' }}>
+                        {cleanPhone && (
+                          <a
+                            href={`tel:${cleanPhone}`}
+                            className="secondary"
+                            style={{
+                              padding: '4px 8px',
+                              fontSize: 11,
+                              display: 'inline-flex',
+                              alignItems: 'center',
+                              gap: 4,
+                              textDecoration: 'none',
+                              color: '#1e40af',
+                              borderColor: '#bfdbfe',
+                              background: '#eff6ff',
+                            }}
+                            title={`Call ${m.headName}`}
+                          >
+                            <Phone size={11} /> Call
+                          </a>
+                        )}
+                        {waPhone && (
+                          <a
+                            href={`https://wa.me/${waPhone}?text=${encodeURIComponent(waMsg)}`}
+                            target="_blank"
+                            rel="noopener noreferrer"
+                            className="secondary"
+                            style={{
+                              padding: '4px 8px',
+                              fontSize: 11,
+                              display: 'inline-flex',
+                              alignItems: 'center',
+                              gap: 4,
+                              textDecoration: 'none',
+                              color: '#047857',
+                              borderColor: '#a7f3d0',
+                              background: '#ecfdf5',
+                            }}
+                            title="Send WhatsApp Reminder"
+                          >
+                            <MessageSquare size={11} /> WhatsApp
+                          </a>
+                        )}
+                        <button
+                          type="button"
+                          className="secondary"
+                          style={{ padding: '4px 8px', fontSize: 11, minHeight: 28 }}
+                          onClick={() => {
+                            setSol(m.branch.sol);
+                            setTab('Repayment follow-up');
+                          }}
+                        >
+                          Cases →
+                        </button>
+                      </div>
+                    </td>
+                  </tr>
+                );
+              })}
+            </tbody>
+          </table>
+        </div>
+      </div>
+    );
+  };
 
   return (
     <div className={'shell role-' + data.user.role}>
@@ -753,6 +1104,9 @@ export default function SmaPortal() {
                 </div>
               </div>
 
+              {/* Ready Reference Summary on Overview */}
+              {renderReadyReference(false)}
+
               <div className="panel">
                 <div className="paneltop">
                   <div>
@@ -968,6 +1322,9 @@ export default function SmaPortal() {
               </div>
             </>
           )}
+
+          {/* TAB: BRANCH ACTIVITY & LOGINS (READY REFERENCE) */}
+          {tab === 'Branch Activity & Logins' && !isBranch && renderReadyReference(true)}
 
           {/* TAB 2: DETAILED REPAYMENT FOLLOW-UP LIST */}
           {tab === 'Repayment follow-up' && (
@@ -1526,10 +1883,31 @@ export default function SmaPortal() {
           align-items: center;
           gap: 20px;
           white-space: nowrap;
-          animation: tickerScroll 40s linear infinite;
+          animation: tickerScroll 115s linear infinite;
         }
-        .tickertape-content:hover {
+        .tickertape-wrap:hover .tickertape-content,
+        .tickertape-wrap:active .tickertape-content,
+        .tickertape-wrap:focus-within .tickertape-content {
           animation-play-state: paused;
+        }
+        .tickertape-pause-btn {
+          background: rgba(255, 255, 255, 0.18);
+          color: #fff;
+          border: 1px solid rgba(255, 255, 255, 0.35);
+          border-radius: 4px;
+          font-size: 10px;
+          font-weight: 700;
+          padding: 3px 8px;
+          cursor: pointer;
+          margin-left: 8px;
+          min-height: 22px;
+          display: inline-flex;
+          align-items: center;
+          gap: 4px;
+          line-height: 1;
+        }
+        .tickertape-pause-btn:hover {
+          background: rgba(255, 255, 255, 0.35);
         }
         .tickertape-item {
           display: inline-flex;
@@ -1570,6 +1948,35 @@ export default function SmaPortal() {
         @keyframes tickerScroll {
           0% { transform: translateX(0); }
           100% { transform: translateX(-50%); }
+        }
+        @media (max-width: 860px) {
+          .tickertape-wrap {
+            flex-direction: column !important;
+            align-items: stretch !important;
+            border-radius: 8px !important;
+            margin-bottom: 14px !important;
+          }
+          .tickertape-label {
+            width: 100% !important;
+            justify-content: space-between !important;
+            padding: 6px 10px !important;
+            font-size: 10px !important;
+            border-bottom: 1px solid rgba(255, 255, 255, 0.1) !important;
+            box-sizing: border-box !important;
+          }
+          .tickertape-track {
+            padding: 7px 0 !important;
+            overflow-x: auto !important;
+            -webkit-overflow-scrolling: touch !important;
+          }
+          .tickertape-content {
+            animation: tickerScroll 140s linear infinite !important;
+            gap: 12px !important;
+          }
+          .tickertape-item {
+            font-size: 11px !important;
+            padding: 3px 8px !important;
+          }
         }
         @media print {
           body * { visibility: hidden; }

@@ -21,7 +21,7 @@ try {
     stashed = true;
   }
 
-  rmSync(path.join(nextCache, 'types'), { recursive: true, force: true });
+  rmSync(nextCache, { recursive: true, force: true });
 
   const nextBin = path.join(root, 'node_modules', 'next', 'dist', 'bin', 'next');
   const res = spawnSync(process.execPath, [nextBin, 'build'], {

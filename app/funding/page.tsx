@@ -21,7 +21,9 @@ import {
   TrendingUp,
   Clock,
   Award,
-  Printer
+  Printer,
+  Pause,
+  Play
 } from 'lucide-react';
 import Login from '../Login';
 import { parseFundingCSV, validateFundingAccounts } from '../model.mjs';
@@ -46,6 +48,7 @@ export default function FundingPortal() {
   const [error, setError] = useState('');
   const [busy, setBusy] = useState(false);
   const [showAll, setShowAll] = useState(false);
+  const [tickerPaused, setTickerPaused] = useState(false);
   const [fundingAmountInput, setFundingAmountInput] = useState<{ [id: string]: string }>({});
   const [rollNoInput, setRollNoInput] = useState<{ [id: string]: string }>({});
   const [selectedCertRoll, setSelectedCertRoll] = useState<string | null>(null);
@@ -636,10 +639,24 @@ export default function FundingPortal() {
           {/* RUNNING TICKER FOR BRANCH LOGINS & FUNDING UPDATES */}
           <div className="tickertape-wrap no-print">
             <div className="tickertape-label">
-              <span className="live-dot" /> REGIONAL LIVE PULSE
+              <div style={{ display: 'inline-flex', alignItems: 'center', gap: 6 }}>
+                <span className="live-dot" /> REGIONAL LIVE PULSE
+              </div>
+              <button
+                type="button"
+                className="tickertape-pause-btn"
+                onClick={() => setTickerPaused(!tickerPaused)}
+                title={tickerPaused ? 'Click to resume marquee' : 'Click to pause marquee'}
+              >
+                {tickerPaused ? <Play size={11} /> : <Pause size={11} />}
+                <span>{tickerPaused ? 'Resume' : 'Pause'}</span>
+              </button>
             </div>
             <div className="tickertape-track">
-              <div className="tickertape-content">
+              <div
+                className="tickertape-content"
+                style={tickerPaused ? { animationPlayState: 'paused' } : undefined}
+              >
                 {tickerItems.concat(tickerItems).map((item, idx) => (
                   <button
                     key={`${item.id}-${idx}`}
@@ -1459,10 +1476,31 @@ export default function FundingPortal() {
           align-items: center;
           gap: 20px;
           white-space: nowrap;
-          animation: tickerScroll 40s linear infinite;
+          animation: tickerScroll 115s linear infinite;
         }
-        .tickertape-content:hover {
+        .tickertape-wrap:hover .tickertape-content,
+        .tickertape-wrap:active .tickertape-content,
+        .tickertape-wrap:focus-within .tickertape-content {
           animation-play-state: paused;
+        }
+        .tickertape-pause-btn {
+          background: rgba(255, 255, 255, 0.18);
+          color: #fff;
+          border: 1px solid rgba(255, 255, 255, 0.35);
+          border-radius: 4px;
+          font-size: 10px;
+          font-weight: 700;
+          padding: 3px 8px;
+          cursor: pointer;
+          margin-left: 8px;
+          min-height: 22px;
+          display: inline-flex;
+          align-items: center;
+          gap: 4px;
+          line-height: 1;
+        }
+        .tickertape-pause-btn:hover {
+          background: rgba(255, 255, 255, 0.35);
         }
         .tickertape-item {
           display: inline-flex;
@@ -1503,6 +1541,35 @@ export default function FundingPortal() {
         @keyframes tickerScroll {
           0% { transform: translateX(0); }
           100% { transform: translateX(-50%); }
+        }
+        @media (max-width: 860px) {
+          .tickertape-wrap {
+            flex-direction: column !important;
+            align-items: stretch !important;
+            border-radius: 8px !important;
+            margin-bottom: 14px !important;
+          }
+          .tickertape-label {
+            width: 100% !important;
+            justify-content: space-between !important;
+            padding: 6px 10px !important;
+            font-size: 10px !important;
+            border-bottom: 1px solid rgba(255, 255, 255, 0.1) !important;
+            box-sizing: border-box !important;
+          }
+          .tickertape-track {
+            padding: 7px 0 !important;
+            overflow-x: auto !important;
+            -webkit-overflow-scrolling: touch !important;
+          }
+          .tickertape-content {
+            animation: tickerScroll 140s linear infinite !important;
+            gap: 12px !important;
+          }
+          .tickertape-item {
+            font-size: 11px !important;
+            padding: 3px 8px !important;
+          }
         }
         @media print {
           body * { visibility: hidden; }
