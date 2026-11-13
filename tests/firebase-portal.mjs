@@ -590,5 +590,15 @@ assert.ok(fundedAcc.funded_by);
 assert.ok(fundedAcc.funded_at);
 count += 6;
 
+// 16. Login Activity: tracking who logged in for the day
+const adminLoginsView = await portalGet(date, 'owner');
+assert.ok(Array.isArray(adminLoginsView.body.logins), 'logins array should be returned');
+assert.ok(adminLoginsView.body.logins.length > 0, 'active logins should be recorded');
+const bmLogin = adminLoginsView.body.logins.find((l) => l.sol === '0174');
+assert.ok(bmLogin, 'Branch 0174 login should be recorded');
+assert.equal(bmLogin.role, 'branch');
+assert.ok(bmLogin.lastActive, 'lastActive timestamp must exist');
+count += 5;
+
 await unlink('tests/.portal-core.mjs');
 console.log(count + ' Firebase portal checks passed: __session cookie, Mobile+PIN auth, admin bootstrap, Firestore store contract, rate-limit lockout, reset, sanctions, SRM direction, and revocation.');

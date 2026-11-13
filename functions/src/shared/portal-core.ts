@@ -213,11 +213,32 @@ export async function handleAuthPost(
         throw new Error('Access revoked');
       }
       const rawToken = randomToken();
-      await store.put('session:' + sha256Hex(rawToken), {
-        phone,
-        version: account.version,
-        expires: Date.now() + SESSION_TTL_MS,
-      });
+      const todayIst = new Date().toLocaleDateString('en-CA', { timeZone: 'Asia/Kolkata' });
+      const nowIso = new Date().toISOString();
+      await store.batch([
+        {
+          type: 'put',
+          key: 'session:' + sha256Hex(rawToken),
+          value: {
+            phone,
+            version: account.version,
+            expires: Date.now() + SESSION_TTL_MS,
+          },
+        },
+        {
+          type: 'put',
+          key: 'login:' + todayIst + ':' + phone,
+          value: {
+            date: todayIst,
+            phone,
+            role: account.role,
+            sol: account.sol || null,
+            name: account.name || '',
+            email: account.email || '',
+            lastActive: nowIso,
+          },
+        },
+      ]);
       return {
         status: 200,
         body: { ok: true },
@@ -278,6 +299,8 @@ export async function handleAuthPost(
     }
 
     const rawToken = randomToken();
+    const todayIst = new Date().toLocaleDateString('en-CA', { timeZone: 'Asia/Kolkata' });
+    const nowIso = new Date().toISOString();
     await store.batch([
       {
         type: 'put',
@@ -286,6 +309,19 @@ export async function handleAuthPost(
           phone,
           version: latest.version,
           expires: Date.now() + SESSION_TTL_MS,
+        },
+      },
+      {
+        type: 'put',
+        key: 'login:' + todayIst + ':' + phone,
+        value: {
+          date: todayIst,
+          phone,
+          role: latest.role,
+          sol: latest.sol || null,
+          name: latest.name || '',
+          email: latest.email || '',
+          lastActive: nowIso,
         },
       },
       { type: 'clearLimit', key: phone },
@@ -376,6 +412,21 @@ export async function handlePortalGet(
       input.queryDate || new Date().toLocaleDateString('en-CA', { timeZone: 'Asia/Kolkata' });
     model.cutoffs(date);
 
+    const nowIso = new Date().toISOString();
+    try {
+      await store.put('login:' + date + ':' + auth.user.phone, {
+        date,
+        phone: auth.user.phone,
+        role: auth.user.role,
+        sol: auth.user.sol || null,
+        name: auth.user.name || '',
+        email: auth.user.email || '',
+        lastActive: nowIso,
+      });
+    } catch {
+      // non-blocking
+    }
+
     let pub = await store.get('pub:' + date);
     let subs = await store.list('sub:' + date + ':');
     let reviews = await store.list('review:' + date + ':');
@@ -408,6 +459,10 @@ export async function handlePortalGet(
         ? (await store.list('account:')).map(({ hash, salt, ...a }: any) => a)
         : [];
     const jobs = auth.user.role === 'admin' ? await store.list('out:') : [];
+    const logins =
+      auth.user.role === 'admin' || auth.user.role === 'srm' || auth.user.role === 'reviewer'
+        ? await store.list('login:' + date + ':')
+        : [];
 
     return {
       status: 200,
@@ -427,6 +482,7 @@ export async function handlePortalGet(
         contacts,
         grants,
         jobs,
+        logins,
       },
     };
   } catch (e: any) {

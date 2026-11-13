@@ -1,6 +1,6 @@
 'use client';
 import {useEffect,useState,useRef} from 'react';
-import {LayoutDashboard,Upload,ClipboardList,MessageSquare,Users,Flag,ArrowUpRight,ArrowDownRight,CheckCircle2,Clock,ChevronRight,Download,Plus,Send,RefreshCw,Building2,ExternalLink} from 'lucide-react';
+import {LayoutDashboard,Upload,ClipboardList,MessageSquare,Users,Flag,ArrowUpRight,ArrowDownRight,CheckCircle2,Clock,ChevronRight,Download,Plus,Send,RefreshCw,Building2,ExternalLink,UserCheck} from 'lucide-react';
 import Login from './Login';
 import {baseFields,parseCSV,validateSnapshot,cutoffs,sanctionSectors,sanctionSectorLabels,sanctionEntryFields,parseDirectoryCSV,validateDirectory} from './model.mjs';
 const sectorLabels:Record<string,string>=sanctionSectorLabels;
@@ -8,7 +8,7 @@ const today=()=>new Date().toLocaleDateString('en-CA',{timeZone:'Asia/Kolkata'})
 const fmt=(n:any)=>n===undefined?'—':Number(n).toLocaleString('en-IN');
 function download(name:string,text:string){const a=document.createElement('a');a.href=URL.createObjectURL(new Blob([text],{type:'text/csv'}));a.download=name;a.click();URL.revokeObjectURL(a.href);}
 export default function Portal(){const [auth,setAuth]=useState<any>(undefined);async function check(){const r=await fetch('/api/auth');const j:any=await r.json();setAuth(j.user);}useEffect(()=>{check().catch(()=>setAuth(null));},[]);if(auth===undefined)return <main className="loading"><img src="/logo.svg" alt="Indian Overseas Bank Logo" className="sitelogo sitelogo-lg"/><p>Opening your workspace…</p></main>;if(!auth)return <Login onSuccess={check}/>;return <Home onExit={()=>setAuth(null)}/>;}
-function Home({onExit}:{onExit:()=>void}){const loadId=useRef(0),routed=useRef(false);const [date,setDate]=useState(today()),[tab,setTab]=useState('Overview'),[data,setData]=useState<any>(null),[error,setError]=useState(''),[notice,setNotice]=useState(''),[busy,setBusy]=useState(false),[search,setSearch]=useState(''),[filter,setFilter]=useState('All branches'),[sol,setSol]=useState(''),[values,setValues]=useState<any>({}),[reply,setReply]=useState(''),[reviewStatus,setReviewStatus]=useState('reviewed'),[rows,setRows]=useState<any[]>([]),[importName,setImportName]=useState(''),[dirRows,setDirRows]=useState<any[]>([]),[dirFileName,setDirFileName]=useState(''),[meta,setMeta]=useState<any>({cutoff:cutoffs(today()).yesterday,deadline:'17:00',baseline:'',fundedDefinition:'',reason:''}),[campaign,setCampaign]=useState({title:'',start:today(),end:today()}),[contact,setContact]=useState({sol:'0174',name:'',phone:'91'}),[grant,setGrant]=useState({email:'',phone:'',role:'branch',sol:'0174'});
+function Home({onExit}:{onExit:()=>void}){const loadId=useRef(0),routed=useRef(false);const [date,setDate]=useState(today()),[tab,setTab]=useState('Overview'),[data,setData]=useState<any>(null),[error,setError]=useState(''),[notice,setNotice]=useState(''),[busy,setBusy]=useState(false),[search,setSearch]=useState(''),[filter,setFilter]=useState('All branches'),[loginSearch,setLoginSearch]=useState(''),[loginFilter,setLoginFilter]=useState('All'),[sol,setSol]=useState(''),[values,setValues]=useState<any>({}),[reply,setReply]=useState(''),[reviewStatus,setReviewStatus]=useState('reviewed'),[rows,setRows]=useState<any[]>([]),[importName,setImportName]=useState(''),[dirRows,setDirRows]=useState<any[]>([]),[dirFileName,setDirFileName]=useState(''),[meta,setMeta]=useState<any>({cutoff:cutoffs(today()).yesterday,deadline:'17:00',baseline:'',fundedDefinition:'',reason:''}),[campaign,setCampaign]=useState({title:'',start:today(),end:today()}),[contact,setContact]=useState({sol:'0174',name:'',phone:'91'}),[grant,setGrant]=useState({email:'',phone:'',role:'branch',sol:'0174'});
 async function load(){const requestId=++loadId.current;setError('');try{const r=await fetch('/api/portal?date='+date),j:any=await r.json();if(requestId!==loadId.current)return;if(!r.ok)throw Error(j.error);setData(j);if(j.user.role==='branch'){setSol(j.user.sol);setValues(j.subs.find((x:any)=>x.sol===j.user.sol)?.values||{});}if(!routed.current){setTab(j.user.role==='branch'?'Branch report':j.user.role==='reviewer'?'Review desk':j.user.role==='srm'?'Overview':'Publish data');setReviewStatus(j.user.role==='srm'?'srm_direction':'reviewed');routed.current=true;}}catch(e:any){setError(e.message);if(/sign.in|session|account changed/i.test(e.message))onExit();}}
 useEffect(()=>{const d=new URLSearchParams(window.location.search).get('date');if(d){try{cutoffs(d);setDate(d);}catch{}}},[]);
 useEffect(()=>{setData(null);load();setValues({});setReply('');setRows([]);setMeta((m:any)=>({...m,cutoff:cutoffs(date).yesterday}));},[date]);
@@ -21,7 +21,12 @@ const set=(k:string,v:any)=>setValues((o:any)=>({...o,[k]:v}));
 const field=(label:string,k:string)=> <label>{label}<input type="number" min="0" step={k.endsWith('amount')?'0.01':'1'} value={values[k]??''} onChange={e=>set(k,e.target.value)} placeholder="Enter 0 for NIL"/></label>;
 const status=(b:any)=>{const s=data.subs.find((x:any)=>x.sol===b.sol);if(!s)return 'Pending';const rev=data.reviews.filter((x:any)=>x.sol===b.sol&&x.revision===s.revision).sort((a:any,b:any)=>b.at.localeCompare(a.at))[0];return rev?.status==='clarification'?'Clarification':rev?'Reviewed':'Submitted';};
 const isAdmin=data?.user.role==='admin';const isSrm=data?.user.role==='srm';const canReview=data?.user.role!=='branch';
-const nav=isAdmin?[['Publish data',Upload],['Overview',LayoutDashboard],['Campaigns',Flag],['Branch directory',Users],['Message queue',Send],['Review desk',MessageSquare]]:isSrm?[['Overview',LayoutDashboard],['Review desk',MessageSquare],['Campaigns',Flag]]:data?.user.role==='reviewer'?[['Review desk',MessageSquare],['Overview',LayoutDashboard]]:[['Branch report',ClipboardList]];
+const logins:any[]=data?.logins||[];
+const branchLogins=logins.filter((l:any)=>l.role==='branch');
+const branchLoginsSols=new Set(branchLogins.map((l:any)=>l.sol));
+const loggedInBranchesCount=(data?.branches||[]).filter((b:any)=>branchLoginsSols.has(b.sol)).length;
+const pendingLoginBranches=(data?.branches||[]).filter((b:any)=>!branchLoginsSols.has(b.sol));
+const nav=isAdmin?[['Publish data',Upload],['Overview',LayoutDashboard],['Login activity',UserCheck],['Campaigns',Flag],['Branch directory',Users],['Message queue',Send],['Review desk',MessageSquare]]:isSrm?[['Overview',LayoutDashboard],['Login activity',UserCheck],['Review desk',MessageSquare],['Campaigns',Flag]]:data?.user.role==='reviewer'?[['Review desk',MessageSquare],['Login activity',UserCheck],['Overview',LayoutDashboard]]:[['Branch report',ClipboardList]];
 const total=(key:string)=>(data?.pub?.rows||[]).reduce((a:number,b:any)=>a+Number(b[key]||0),0);
 async function upload(file:File){try{const text=await file.text();const r=parseCSV(text);validateSnapshot(r,data.branches,data.campaigns,date);setRows(r);setImportName(file.name);setError('');}catch(e:any){setRows([]);setError(e.message);}}
 function template(){let fields=['sol',...baseFields,...active.flatMap((c:any)=>['camp_'+c.id+'_prior','camp_'+c.id+'_mtd'])];download('IOB_upload_'+date+'.csv',fields.join(',')+'\n'+data.branches.map((b:any)=>[b.sol,...fields.slice(1).map(()=> '')].join(',')).join('\n'));}
@@ -45,6 +50,205 @@ return <div className={"shell role-"+data.user.role}><aside><div className="bran
 {sub&&canReview&&<div className="panel"><h2>{isSrm?'SRM Executive Direction':'Reply to this entry'}</h2><div className="mention"><Users size={16}/>Branch head selected automatically · {branch?.name} ({sol})</div><label>{isSrm?'SRM remarks / instructions':'Reviewer remarks'}<textarea value={reply} onChange={e=>setReply(e.target.value)} placeholder={isSrm?'Provide executive direction or instructions to the branch head…':'Write your feedback or request a clarification…'}/></label><label>Review outcome<select value={reviewStatus} onChange={e=>setReviewStatus(e.target.value)}>{isSrm&&<option value="srm_direction">★ SRM Direction / Instruction</option>}<option value="reviewed">Reviewed</option><option value="clarification">Clarification required</option></select></label><p className="muted">The review is saved immediately. Group delivery waits for a configured connection and a verified branch-head mapping.</p><button disabled={busy} onClick={async()=>{if(await act({action:'review',sol,text:reply,status:reviewStatus,revision:sub.revision},isSrm&&reviewStatus==='srm_direction'?'SRM direction saved and queued for group delivery.':'Review saved. The group reply is queued; the administrator can check delivery status.'))setReply('');}}><Send size={16}/>{isSrm&&reviewStatus==='srm_direction'?'Issue SRM Direction':'Save review & queue group reply'}</button></div>}
 <div className="panel"><h2>Review history</h2>{data.reviews.filter((r:any)=>r.sol===sol).map((r:any)=><div className={"review "+(r.role==='srm'||r.status==='srm_direction'?'srm-review-card':'')} key={r.id}><div className="paneltop"><b>{r.role==='srm'?'★ SRM (Senior Regional Manager)':r.by}</b><span className={'badge '+(r.status==='srm_direction'?'srm-badge':r.status)}>{r.status==='srm_direction'?'SRM Direction':r.status}</span></div><small>{r.role==='srm'?r.by+' · ':''}Report revision {r.revision} · {r.at}</small><p>{r.text}</p></div>)}{!data.reviews.some((r:any)=>r.sol===sol)&&<p>No reviews yet.</p>}</div></>}</>}
 {tab==='Publish data'&&isAdmin&&<><div className="steps"><span className="on">1 · Download template</span><ChevronRight size={16}/><span>2 · Upload & validate</span><ChevronRight size={16}/><span>3 · Publish & request reports</span></div><div className="panel"><div className="paneltop"><div><h2>Upload the confirmed branch position</h2><p>CSV format · All 56 branches · Monetary values in rupees</p></div><button className="secondary" onClick={template}><Download size={16}/>Download blank template</button></div><div className="uploadzone"><Upload size={30}/><h3>{importName||'Choose your daily data file'}</h3><p>Include account openings, growth, SMA, loan sanctions (Retail, Agri, MSME) and active campaign figures.</p><input aria-label="Upload daily CSV" type="file" accept=".csv,text/csv" onChange={e=>e.target.files?.[0]&&upload(e.target.files[0])}/></div>{rows.length>0&&<div className="alert success"><CheckCircle2 size={18}/>{rows.length} branches validated. No duplicate SOLs or missing required values.</div>}<div className="grid3">{[['Source cutoff','cutoff','date'],['Submission deadline (IST)','deadline','time'],['Growth comparison baseline','baseline','text']].map(([label,k,type])=><label key={k}>{label}<input type={type} value={meta[k]} onChange={e=>setMeta({...meta,[k]:e.target.value})} placeholder={k==='baseline'?'e.g. balance at 31 March 2026':''}/></label>)}</div><label>Funded-account definition from your source<input value={meta.fundedDefinition} onChange={e=>setMeta({...meta,fundedDefinition:e.target.value})} placeholder="Enter the definition used in the official source report"/></label>{data.pub&&<label>Correction reason (required)<input value={meta.reason} onChange={e=>setMeta({...meta,reason:e.target.value})}/></label>}<button disabled={!rows.length||busy} onClick={()=>act({action:'publish',rows,...meta},'Daily position published. Submission request recorded in message queue.')}><Upload size={16}/>{data.pub?'Publish corrected version':'Publish & request submissions'}</button><p className="muted">Publication opens reporting immediately. Re-publication preserves history and does not duplicate the initial group request.</p></div>{rows.length>0&&<div className="panel"><h2>Upload preview</h2><div className="tablewrap"><table><thead><tr><th>SOL</th><th>SB MTD OPENED</th><th>CD MTD OPENED</th><th>SB GROWTH ₹</th><th>CD GROWTH ₹</th><th>RETAIL SANCTIONS ₹</th><th>AGRI SANCTIONS ₹</th><th>MSME SANCTIONS ₹</th></tr></thead><tbody>{rows.slice(0,8).map(r=><tr key={r.sol}><td>{r.sol}</td><td>{r.sb_mtd_opened}</td><td>{r.cd_mtd_opened}</td><td>{r.sb_growth}</td><td>{r.cd_growth}</td><td>{r.sanction_retail_mtd_amount}</td><td>{r.sanction_agri_mtd_amount}</td><td>{r.sanction_msme_mtd_amount}</td></tr>)}</tbody></table></div><p>First 8 of {rows.length} rows shown.</p></div>}</>}
+{tab==='Login activity'&&(isAdmin||isSrm||data.user.role==='reviewer')&&<>
+  <div className="stats">
+    <div>
+      <span>Branch Heads Logged In</span>
+      <strong style={{color:'#059669'}}>{loggedInBranchesCount}<em> / {data.branches.length}</em></strong>
+      <small>{Math.round((loggedInBranchesCount/data.branches.length)*100)}% of branches active</small>
+    </div>
+    <div>
+      <span>Branches Pending Login</span>
+      <strong style={{color:'#dc2626'}}>{data.branches.length - loggedInBranchesCount}</strong>
+      <small>Workspace not accessed yet</small>
+    </div>
+    <div>
+      <span>Regional Office / Reviewers</span>
+      <strong style={{color:'#0284c7'}}>{logins.filter((l:any)=>l.role!=='branch').length}</strong>
+      <small>SRM, reviewers & admin</small>
+    </div>
+    <div>
+      <span>Total Active Logins</span>
+      <strong>{logins.length}</strong>
+      <small>Officers on {date}</small>
+    </div>
+  </div>
+
+  <div className="panel">
+    <div className="paneltop">
+      <div>
+        <h2>Daily Login Activity &amp; Workspace Presence ({date})</h2>
+        <p>Monitor which branch heads and regional officers have opened their daily workspace for {date}.</p>
+      </div>
+      <div style={{display:'flex',gap:8,alignItems:'center'}}>
+        <button type="button" className="secondary" onClick={()=>{
+          const csvHeader = 'SOL,Branch Name,Head Name,Mobile,Role,Status,Last Active (IST)\n';
+          const branchRows = data.branches.map((b:any)=>{
+            const l = branchLogins.find((x:any)=>x.sol===b.sol);
+            const c = data.contacts?.find((x:any)=>x.sol===b.sol);
+            const g = data.grants?.find((x:any)=>x.sol===b.sol);
+            const name = l?.name || c?.name || g?.name || 'Branch Head';
+            const phone = l?.phone || c?.phone || g?.phone || '';
+            const status = l ? 'Logged In' : 'Pending Login';
+            const time = l?.lastActive ? new Date(l.lastActive).toLocaleTimeString('en-IN',{timeZone:'Asia/Kolkata'}) : '—';
+            return [b.sol, `"${b.name.replace(/"/g,'""')}"`, `"${name.replace(/"/g,'""')}"`, phone, 'branch', status, time].join(',');
+          }).join('\n');
+          const roRows = logins.filter((l:any)=>l.role!=='branch').map((l:any)=>[l.sol||'3933','Regional Office',`"${(l.name||l.email||'Officer').replace(/"/g,'""')}"`,l.phone||'',l.role,'Logged In',new Date(l.lastActive).toLocaleTimeString('en-IN',{timeZone:'Asia/Kolkata'})].join(',')).join('\n');
+          download(`IOB_logins_${date}.csv`, csvHeader + branchRows + (roRows ? '\n' + roRows : ''));
+        }}>
+          <Download size={16}/> Export login CSV
+        </button>
+        {pendingLoginBranches.length > 0 && <button type="button" className="secondary" onClick={async()=>{
+          const text = `*Pending Branch Logins (${date})*\nThe following ${pendingLoginBranches.length} branches have not yet logged in today:\n` + pendingLoginBranches.map((b:any)=>{
+            const c = data.contacts?.find((x:any)=>x.sol===b.sol);
+            return `• SOL ${b.sol} ${b.name}${c?.name ? ` (${c.name})` : ''}`;
+          }).join('\n') + `\n\nPlease log in to report: https://dailyreport-9265a.web.app`;
+          await navigator.clipboard.writeText(text);
+          setNotice('Pending login list copied to clipboard for WhatsApp sharing.');
+        }}>
+          Copy pending branches
+        </button>}
+      </div>
+    </div>
+
+    <div className="toolbar">
+      <input placeholder="Search SOL, branch, head name or mobile…" value={loginSearch} onChange={e=>setLoginSearch(e.target.value)}/>
+      <select value={loginFilter} onChange={e=>setLoginFilter(e.target.value)}>
+        <option value="All">All branches (56)</option>
+        <option value="Logged in">Logged in today ({loggedInBranchesCount})</option>
+        <option value="Pending">Pending login ({data.branches.length - loggedInBranchesCount})</option>
+        <option value="Regional Office">Regional Office & Reviewers ({logins.filter((l:any)=>l.role!=='branch').length})</option>
+      </select>
+    </div>
+
+    <div className="tablewrap branchlist">
+      <table>
+        <thead>
+          <tr>
+            <th>BRANCH / OFFICE</th>
+            <th>OFFICER &amp; MOBILE</th>
+            <th>ROLE</th>
+            <th>TODAY'S STATUS</th>
+            <th>LAST ACTIVE</th>
+            <th>ACTION</th>
+          </tr>
+        </thead>
+        <tbody>
+          {loginFilter !== 'Regional Office' && data.branches.filter((b:any)=>{
+            const l = branchLogins.find((x:any)=>x.sol===b.sol);
+            const c = data.contacts?.find((x:any)=>x.sol===b.sol);
+            const g = data.grants?.find((x:any)=>x.sol===b.sol);
+            const q = loginSearch.toLowerCase();
+            const matchesSearch = !q || (b.name + ' ' + b.sol + ' ' + (l?.name||'') + ' ' + (c?.name||'') + ' ' + (l?.phone||'') + ' ' + (c?.phone||'')).toLowerCase().includes(q);
+            const matchesFilter = loginFilter === 'All' || (loginFilter === 'Logged in' ? Boolean(l) : !l);
+            return matchesSearch && matchesFilter;
+          }).map((b:any)=>{
+            const l = branchLogins.find((x:any)=>x.sol===b.sol);
+            const c = data.contacts?.find((x:any)=>x.sol===b.sol);
+            const g = data.grants?.find((x:any)=>x.sol===b.sol);
+            const headName = l?.name || c?.name || g?.name || 'Branch Head';
+            const phone = l?.phone || c?.phone || g?.phone;
+            const waPhone = phone ? (phone.startsWith('91') ? phone : '91' + phone) : null;
+            const waReminderText = encodeURIComponent(`Dear ${headName}, Greetings from Regional Office. The daily performance reporting workspace for ${b.name} (SOL ${b.sol}) has not been opened yet for ${date}. Kindly log in and submit your daily position at https://dailyreport-9265a.web.app/?date=${date}`);
+
+            return (
+              <tr key={b.sol} style={{background: l ? '#f0fdf4' : '#fff'}}>
+                <td>
+                  <b>{b.name}</b>
+                  <small>SOL {b.sol}</small>
+                </td>
+                <td data-label="Officer">
+                  <b>{headName}</b>
+                  {phone ? <small>{phone.length===12 && phone.startsWith('91') ? phone.slice(2) : phone}</small> : <small className="muted">No phone mapped</small>}
+                </td>
+                <td data-label="Role"><span className="badge">Branch Head</span></td>
+                <td data-label="Status">
+                  {l ? (
+                    <span className="badge" style={{background:'#dcfce7',color:'#15803d',fontWeight:700,display:'inline-flex',alignItems:'center',gap:4}}>
+                      <CheckCircle2 size={13}/> Logged in
+                    </span>
+                  ) : (
+                    <span className="badge" style={{background:'#fee2e2',color:'#b91c1c',fontWeight:700}}>
+                      Pending login
+                    </span>
+                  )}
+                </td>
+                <td data-label="Last active">
+                  {l?.lastActive ? (
+                    <span>
+                      {new Date(l.lastActive).toLocaleTimeString('en-IN',{timeZone:'Asia/Kolkata',hour:'2-digit',minute:'2-digit'})}
+                      <small>{new Date(l.lastActive).toLocaleDateString('en-IN',{timeZone:'Asia/Kolkata'})}</small>
+                    </span>
+                  ) : (
+                    <span className="muted">—</span>
+                  )}
+                </td>
+                <td>
+                  {!l && waPhone && (
+                    <a
+                      href={`https://wa.me/${waPhone}?text=${waReminderText}`}
+                      target="_blank"
+                      rel="noopener noreferrer"
+                      className="button"
+                      style={{
+                        fontSize:11,
+                        padding:'4px 8px',
+                        background:'#25D366',
+                        color:'#fff',
+                        textDecoration:'none',
+                        borderRadius:6,
+                        display:'inline-flex',
+                        alignItems:'center',
+                        gap:4,
+                        whiteSpace:'nowrap'
+                      }}
+                      title="Send WhatsApp login reminder to branch head"
+                    >
+                      <Send size={12}/> Remind
+                    </a>
+                  )}
+                </td>
+              </tr>
+            );
+          })}
+
+          {(loginFilter === 'All' || loginFilter === 'Regional Office') && logins.filter((l:any)=>l.role!=='branch').filter((l:any)=>{
+            const q = loginSearch.toLowerCase();
+            return !q || (l.name + ' ' + l.email + ' ' + l.phone + ' ' + l.role).toLowerCase().includes(q);
+          }).map((l:any)=>(
+            <tr key={l.phone} style={{background:'#f8fafc'}}>
+              <td>
+                <b>Regional Office</b>
+                <small>SOL 3933 · Dindigul RO</small>
+              </td>
+              <td data-label="Officer">
+                <b>{l.name || l.email || l.phone?.slice(2) || 'Officer'}</b>
+                <small>{l.phone?.slice(2)} {l.email ? `· ${l.email}` : ''}</small>
+              </td>
+              <td data-label="Role">
+                <span className={"badge " + (l.role==='srm'?'srm-badge':'')}>
+                  {l.role === 'admin' ? 'Administrator' : l.role === 'srm' ? 'SRM Head' : 'Reviewer'}
+                </span>
+              </td>
+              <td data-label="Status">
+                <span className="badge" style={{background:'#dbeafe',color:'#1d4ed8',fontWeight:700,display:'inline-flex',alignItems:'center',gap:4}}>
+                  <CheckCircle2 size={13}/> Active today
+                </span>
+              </td>
+              <td data-label="Last active">
+                <span>
+                  {new Date(l.lastActive).toLocaleTimeString('en-IN',{timeZone:'Asia/Kolkata',hour:'2-digit',minute:'2-digit'})}
+                  <small>{new Date(l.lastActive).toLocaleDateString('en-IN',{timeZone:'Asia/Kolkata'})}</small>
+                </span>
+              </td>
+              <td>—</td>
+            </tr>
+          ))}
+        </tbody>
+      </table>
+    </div>
+  </div>
+</>}
 {tab==='Campaigns'&&(isAdmin||isSrm)&&<>{isAdmin&&<div className="panel"><h2>Add a campaign</h2><p>Campaigns apply to all 56 branches. Dates are inclusive; overlapping campaigns retain separate totals.</p><div className="grid3">{[['Title','title','text'],['Start date','start','date'],['End date','end','date']].map(([l,k,t])=><label key={k}>{l}<input type={t} value={(campaign as any)[k]} onChange={e=>setCampaign({...campaign,[k]:e.target.value})}/></label>)}</div><button disabled={busy} onClick={()=>act({action:'campaign',...campaign},'Campaign created. Download a new upload template to include its columns.')}><Plus size={16}/>Create campaign</button></div>}<div className="campaigns">{data.campaigns.map((c:any)=><div className="panel" key={c.id}><Flag size={24}/><h2>{c.title}</h2><p>{c.start} to {c.end}</p><span className="badge">{c.start<=date&&c.end>=date?'Active':'Outside reporting period'}</span><small>Import ID: {c.id}</small></div>)}</div></>}
 {tab==='Branch directory'&&isAdmin&&<><div className="panel"><div className="paneltop"><div><h2>Bulk upload branch directory & access</h2><p>Download the 56-branch CSV template, fill in head name, mobile, and email, then upload once to update both WhatsApp mappings and portal access.</p></div><button className="secondary" onClick={directoryTemplate}><Download size={16}/>Download 56-branch template</button></div><div className="uploadzone"><Upload size={30}/><h3>{dirFileName||'Choose branch directory CSV'}</h3><p>Columns: sol (use 3933 for Regional Office SRM/Reviewers), head_name, phone (10 digits or 91+10), email (optional), role (branch/reviewer/srm). Blank rows are skipped.</p><input aria-label="Upload branch directory CSV" type="file" accept=".csv,text/csv" onChange={e=>e.target.files?.[0]&&uploadDirectory(e.target.files[0])}/></div>{dirRows.length>0&&<><div className="alert success"><CheckCircle2 size={18}/>{dirRows.length} directory entries validated and ready to apply.</div><div className="tablewrap" style={{marginBottom:14}}><table><thead><tr><th>SOL</th><th>HEAD NAME</th><th>MOBILE</th><th>EMAIL</th><th>ROLE</th></tr></thead><tbody>{dirRows.slice(0,8).map((r:any)=><tr key={r.phone}><td>{r.sol||'—'}</td><td>{r.name||'—'}</td><td>{r.phone}</td><td>{r.email||'—'}</td><td>{r.role}</td></tr>)}</tbody></table>{dirRows.length>8&&<p>First 8 of {dirRows.length} rows shown.</p>}</div></>} <button disabled={!dirRows.length||busy} onClick={async()=>{if(await act({action:'upload-directory',rows:dirRows},'Branch directory and access assignments updated.')){setDirRows([]);setDirFileName('');}}}><Upload size={16}/>Upload & apply directory{dirRows.length?' ('+dirRows.length+')':''}</button></div><div className="panel"><h2>Branch-head WhatsApp mapping</h2><p>Numbers are not inferred. Save the correct current head for each branch.</p><div className="grid3"><label>Branch<select value={contact.sol} onChange={e=>setContact({...contact,sol:e.target.value})}>{data.branches.map((b:any)=><option key={b.sol} value={b.sol}>{b.sol} · {b.name}</option>)}</select></label><label>Branch head name<input value={contact.name} onChange={e=>setContact({...contact,name:e.target.value})}/></label><label>WhatsApp number (91 + 10 digits)<input value={contact.phone} onChange={e=>setContact({...contact,phone:e.target.value})}/></label></div><button disabled={busy} onClick={()=>act({action:'contact',...contact},'Branch-head mapping saved.')}>Save mapping</button><div className="tablewrap"><table><thead><tr><th>BRANCH</th><th>HEAD</th><th>MOBILE</th></tr></thead><tbody>{data.contacts.map((c:any)=><tr key={c.sol}><td>{c.sol} · {data.branches.find((b:any)=>b.sol===c.sol)?.name}</td><td>{c.name}</td><td>{c.phone}</td></tr>)}</tbody></table></div></div><div className="panel"><h2>Portal access assignments</h2><p>Register each mobile number with the officer’s email and role. On first login with their mobile number, that person sets their own 4-digit PIN.</p><div className="grid3"><label>Mobile number<input type="tel" inputMode="numeric" value={grant.phone} onChange={e=>setGrant({...grant,phone:e.target.value})} placeholder="10-digit mobile number"/></label><label>Officer email (optional)<input type="email" value={grant.email} onChange={e=>setGrant({...grant,email:e.target.value})}/></label><label>Role<select value={grant.role} onChange={e=>setGrant({...grant,role:e.target.value})}><option value="branch">Branch head</option><option value="reviewer">Regional reviewer</option><option value="srm">Senior Regional Manager (SRM)</option><option value="none">Revoke access</option></select></label>{grant.role==='branch'?<label>Branch<select value={grant.sol} onChange={e=>setGrant({...grant,sol:e.target.value})}>{data.branches.map((b:any)=><option key={b.sol} value={b.sol}>{b.sol} · {b.name}</option>)}</select></label>:(grant.role==='reviewer'||grant.role==='srm')&&<label>Attached Office<input value="3933 · Regional Office" disabled/></label>}</div><button disabled={busy} onClick={()=>act({action:'grant',...grant,sol:grant.role==='branch'?grant.sol:(grant.role==='reviewer'||grant.role==='srm')?'3933':null},'Role assignment saved.')}>Save assignment</button>{data.grants.map((g:any)=><div className="accountrow" key={g.phone}><div><b>{g.phone?.slice(2)}</b><small>{[g.name,g.email].filter(Boolean).join(' · ')||'No name/email'} · {g.role} {g.sol==='3933'?'3933 · Regional Office':g.sol||''}</small></div>{g.role!=='admin'&&<button className="secondary" disabled={busy} onClick={()=>{if(window.confirm('Reset this user’s PIN and sign them out?'))act({action:'reset-pin',phone:g.phone},'PIN reset. The user will set a new PIN on their next login.');}}>Reset PIN</button>}</div>)}</div></>}
 {tab==='Message queue'&&isAdmin&&<><div className="alert neutral"><MessageSquare size={22}/><div><b>Group delivery requires a configured WhatsApp connection.</b><br/>A queued or blocked message has not been sent. Use <b>Share via WhatsApp</b> or <b>Copy message</b> below to share directly to your group or branch head.</div></div><div className="panel"><h2>Outbound messages</h2>{data.jobs.length?data.jobs.slice().reverse().map((j:any)=>{const headContact=j.sol?data.contacts.find((c:any)=>c.sol===j.sol):null;return <div className="job" key={j.key}><div className="paneltop"><b>{j.type} · {j.date}{j.sol?' · '+j.sol:''}</b><span className={'badge '+j.status}>{j.status}</span></div><pre>{j.text}</pre>{j.error&&<p className="negative">{j.error}</p>}{j.messageId&&<small>Message reference: {j.messageId}</small>}<div style={{display:'flex',flexWrap:'wrap',gap:10,marginTop:10}}><a className="button" style={{display:'inline-flex',alignItems:'center',gap:8,background:'#25D366',color:'#fff',padding:'10px 16px',borderRadius:8,fontWeight:600,textDecoration:'none',fontSize:13}} href={'https://wa.me/?text='+encodeURIComponent(j.text)} target="_blank" rel="noopener noreferrer"><Send size={15}/>Share via WhatsApp</a>{headContact?.phone&&<a className="secondary" style={{display:'inline-flex',alignItems:'center',gap:8,padding:'10px 14px',borderRadius:8,fontWeight:600,textDecoration:'none'}} href={'https://wa.me/'+headContact.phone+'?text='+encodeURIComponent(j.text)} target="_blank" rel="noopener noreferrer"><MessageSquare size={15}/>Message {headContact.name}</a>}<button type="button" className="secondary" onClick={async()=>{await navigator.clipboard.writeText(j.text);setNotice('Message copied to clipboard.');}}>Copy message</button>{['pending','blocked'].includes(j.status)&&<button className="secondary" disabled={busy} onClick={()=>act({action:'retry',key:j.key},'Connection checked. See the updated message status.')}><RefreshCw size={15}/>Retry connection</button>}</div></div>;}):<div className="empty"><MessageSquare size={32}/><h3>No messages yet</h3><p>Publication requests and reviewer replies will appear here.</p></div>}</div></>}
