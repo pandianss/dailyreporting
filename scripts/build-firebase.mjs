@@ -44,12 +44,20 @@ if (exitCode !== 0) {
 
 const outDir = path.join(root, 'out');
 const outSmaDir = path.join(root, 'out-sma');
+const outFundingDir = path.join(root, 'out-funding');
 if (existsSync(outDir)) {
   rmSync(outSmaDir, { recursive: true, force: true });
   cpSync(outDir, outSmaDir, { recursive: true });
   const smaIndex = path.join(outDir, 'sma', 'index.html');
   if (existsSync(smaIndex)) {
     copyFileSync(smaIndex, path.join(outSmaDir, 'index.html'));
+  }
+
+  rmSync(outFundingDir, { recursive: true, force: true });
+  cpSync(outDir, outFundingDir, { recursive: true });
+  const fundingIndex = path.join(outDir, 'funding', 'index.html');
+  if (existsSync(fundingIndex)) {
+    copyFileSync(fundingIndex, path.join(outFundingDir, 'index.html'));
   }
 }
 

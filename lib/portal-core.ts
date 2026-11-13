@@ -42,6 +42,8 @@ export interface ModelHelpers {
   repaymentsDueInNextDays: (repayments: any[], date: string, days?: number) => any[];
   validateDirectory: (rows: any[], branches: Branch[], adminMobile?: string) => any[];
   validateSMAAccounts: (rows: any[], branches: Branch[]) => any[];
+  validateFundingAccounts?: (rows: any[], branches: Branch[]) => any[];
+  parseFundingCSV?: (text: string) => any[];
   normalizeDate: (v: any, label?: string) => string;
   number: (v: any, label: string, integer?: boolean, signed?: boolean) => number;
 }
@@ -396,6 +398,10 @@ export async function handlePortalGet(
       auth.user.role === 'branch'
         ? await store.list('sma:' + auth.user.sol + ':')
         : await store.list('sma:');
+    const rawFunding =
+      auth.user.role === 'branch'
+        ? await store.list('funding:' + auth.user.sol + ':')
+        : await store.list('funding:');
     const contacts = auth.user.role === 'admin' ? await store.list('contact:') : [];
     const grants =
       auth.user.role === 'admin'
@@ -417,6 +423,7 @@ export async function handlePortalGet(
         campaigns,
         repayments,
         smaAccounts: rawSma,
+        fundingAccounts: rawFunding,
         contacts,
         grants,
         jobs,
@@ -878,6 +885,75 @@ export async function handlePortalPost(
           value: sub,
         },
       ]);
+    } else if (action === 'upload-funding') {
+      requireAdmin();
+      if (!model.validateFundingAccounts) {
+        throw new Error('Funding validator not available');
+      }
+      const validated = model.validateFundingAccounts(body.rows, branches);
+      const existing = await store.list('funding:');
+      const existingByKey = new Map(existing.map((x: any) => [x.key, x]));
+      const nextKeys = new Set(validated.map((r: any) => 'funding:' + r.sol + ':' + r.id));
+      const ops: Array<{ type: 'put'; key: string; value: any } | { type: 'del'; key: string }> = [];
+      for (const old of existing) {
+        if (!nextKeys.has(old.key)) {
+          ops.push({ type: 'del', key: old.key });
+        }
+      }
+      for (const row of validated) {
+        const key = 'funding:' + row.sol + ':' + row.id;
+        const prev = existingByKey.get(key);
+        ops.push({
+          type: 'put',
+          key,
+          value: {
+            ...row,
+            funded: Boolean(prev?.funded),
+            funded_amount: prev?.funded ? prev.funded_amount : 0,
+            funded_at: prev?.funded ? prev.funded_at : null,
+            funded_by: prev?.funded ? prev.funded_by : null,
+            call_status: prev?.call_status || 'not_called',
+            notes: prev?.notes || '',
+            updatedAt: prev?.updatedAt || now,
+            uploadedAt: now,
+            uploadedBy: auth.user.email,
+          },
+        });
+      }
+      for (let i = 0; i < ops.length; i += 200) {
+        await store.batch(ops.slice(i, i + 200));
+      }
+    } else if (action === 'funding-status') {
+      const sol = auth.user.role === 'branch' ? auth.user.sol : body.sol;
+      if (!branches.find((b) => b.sol === sol) || !String(body.id || '').trim()) {
+        throw new Error('Valid branch and account required');
+      }
+      const key = 'funding:' + sol + ':' + String(body.id).trim();
+      const current = await store.get(key);
+      if (!current) {
+        throw new Error('Low balance account not found');
+      }
+      const funded = body.funded !== undefined ? Boolean(body.funded) : current.funded;
+      const funded_amount =
+        body.funded_amount !== undefined
+          ? model.number(body.funded_amount, 'Funded amount', false, false)
+          : current.funded_amount || 0;
+      const call_status = body.call_status
+        ? String(body.call_status).trim().toLowerCase()
+        : current.call_status || 'not_called';
+      const notes = body.notes !== undefined ? String(body.notes).slice(0, 500) : current.notes || '';
+      const actor = auth.user.name || auth.user.email || auth.user.phone.slice(2);
+      await store.put(key, {
+        ...current,
+        funded,
+        funded_amount: funded ? funded_amount : 0,
+        funded_at: funded ? (current.funded_at || now) : null,
+        funded_by: funded ? (current.funded_by || actor) : null,
+        call_status,
+        notes,
+        updatedAt: now,
+        updatedBy: actor,
+      });
     } else {
       throw new Error('Unknown action');
     }

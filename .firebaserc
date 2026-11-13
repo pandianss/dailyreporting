@@ -10,6 +10,9 @@
         ],
         "sma": [
           "dailyreport-sma-9265a"
+        ],
+        "funding": [
+          "dailyreport-funding-9265a"
         ]
       }
     }

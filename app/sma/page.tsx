@@ -117,7 +117,7 @@ export default function SmaPortal() {
     );
   }
 
-  async function switchPortal() {
+  async function switchPortal(target: 'daily' | 'funding' = 'daily') {
     setBusy(true);
     try {
       const r = await fetch('/api/portal', {
@@ -130,8 +130,8 @@ export default function SmaPortal() {
 
       const isSmaDomain = window.location.hostname.includes('dailyreport-sma');
       const targetBase = isSmaDomain
-        ? 'https://dailyreport-9265a.web.app'
-        : window.location.origin;
+        ? (target === 'daily' ? 'https://dailyreport-9265a.web.app' : 'https://dailyreport-funding-9265a.web.app')
+        : (target === 'daily' ? window.location.origin : `${window.location.origin}/funding`);
 
       window.location.href = `${targetBase}/?handoff=${encodeURIComponent(j.token)}&date=${date}`;
     } catch (e: any) {
@@ -335,7 +335,7 @@ export default function SmaPortal() {
             <button
               type="button"
               className="secondary"
-              onClick={switchPortal}
+              onClick={() => switchPortal('daily')}
               title="Open Daily Reporting Portal"
               style={{
                 display: 'inline-flex',
@@ -349,7 +349,26 @@ export default function SmaPortal() {
                 background: '#eff6ff',
               }}
             >
-              Daily Reporting Portal <ExternalLink size={13} />
+              Daily Reporting <ExternalLink size={13} />
+            </button>
+            <button
+              type="button"
+              className="secondary"
+              onClick={() => switchPortal('funding')}
+              title="Open Low Balance Funding Portal"
+              style={{
+                display: 'inline-flex',
+                alignItems: 'center',
+                gap: 6,
+                padding: '6px 12px',
+                fontSize: 12,
+                fontWeight: 600,
+                color: '#0284c7',
+                borderColor: '#bae6fd',
+                background: '#f0f9ff',
+              }}
+            >
+              Low Balance Funding <ExternalLink size={13} />
             </button>
             <span className={'private ' + (isSrm ? 'srm-tag' : '')}>
               {data.user.role === 'branch'
@@ -445,7 +464,7 @@ export default function SmaPortal() {
             </div>
             <button
               className="secondary"
-              onClick={switchPortal}
+              onClick={() => switchPortal('daily')}
               style={{ fontSize: 12, padding: '6px 12px', whiteSpace: 'nowrap' }}
             >
               Open Daily Reporting Portal <ArrowRight size={14} />

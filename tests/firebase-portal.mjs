@@ -529,5 +529,66 @@ assert.ok(cookies['smaSession']);
 assert.equal((await authPost({ action: 'handoff-login', token: handoffToken }, 'badSession')).status, 400);
 count += 3;
 
+// 15. Low Balance Funding Portal features: CSV upload, branch isolation, dialer tracking, and funding
+const fundingCSV = [
+  'branch_code,account_no,cif,customer_name,mobile,last_known_balance,scheme',
+  '0174,01740100001001,CIF1001,M Shanmugam,9842101001,15,SB',
+  '0174,01740100001002,CIF1002,K Murugan,9842101002,0,SB',
+  '0175,01750100002001,CIF2001,V Meenakshi,9842102001,100,SB',
+].join('\n');
+const parsedFunding = model.validateFundingAccounts(model.parseFundingCSV(fundingCSV), branches);
+assert.equal(parsedFunding.length, 3);
+assert.equal(parsedFunding[0].sol, '0174');
+assert.equal(parsedFunding[0].last_known_balance, 15);
+assert.equal(parsedFunding[0].mobile, '919842101001');
+count += 4;
+
+// Admin uploads funding accounts
+assert.equal((await portalPost(date, { action: 'upload-funding', rows: parsedFunding })).status, 200);
+count++;
+
+// Branch head sees only their branch accounts
+const bm0174Funding = await portalGet(date, 'branch3');
+assert.equal(bm0174Funding.body.fundingAccounts.length, 2);
+assert.ok(bm0174Funding.body.fundingAccounts.every((a) => a.sol === '0174'));
+count += 2;
+
+// Admin sees all accounts across branches
+const adminFunding = await portalGet(date, 'owner');
+assert.equal(adminFunding.body.fundingAccounts.length, 3);
+count++;
+
+// Branch head updates call status and marks funded
+const targetAcc = bm0174Funding.body.fundingAccounts[0];
+assert.equal(
+  (
+    await portalPost(
+      date,
+      {
+        action: 'funding-status',
+        sol: '0174',
+        id: targetAcc.id,
+        funded: true,
+        funded_amount: 1000,
+        call_status: 'called',
+        notes: 'Called customer, deposited Rs 1000 at cash counter',
+      },
+      'branch3'
+    )
+  ).status,
+  200
+);
+count++;
+
+const updatedFundingView = await portalGet(date, 'branch3');
+const fundedAcc = updatedFundingView.body.fundingAccounts.find((a) => a.id === targetAcc.id);
+assert.equal(fundedAcc.funded, true);
+assert.equal(fundedAcc.funded_amount, 1000);
+assert.equal(fundedAcc.call_status, 'called');
+assert.equal(fundedAcc.notes, 'Called customer, deposited Rs 1000 at cash counter');
+assert.ok(fundedAcc.funded_by);
+assert.ok(fundedAcc.funded_at);
+count += 6;
+
 await unlink('tests/.portal-core.mjs');
 console.log(count + ' Firebase portal checks passed: __session cookie, Mobile+PIN auth, admin bootstrap, Firestore store contract, rate-limit lockout, reset, sanctions, SRM direction, and revocation.');
