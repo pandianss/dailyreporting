@@ -1687,17 +1687,19 @@ export default function SmaPortal() {
                                     >
                                       CIF: {grp.cif}
                                     </span>
-                                    <span
-                                      className="badge"
-                                      style={{
-                                        background: '#dbeafe',
-                                        color: '#1e40af',
-                                        fontSize: 11,
-                                        fontWeight: 700,
-                                      }}
-                                    >
-                                      {grp.accounts.length} {grp.accounts.length === 1 ? 'A/C' : 'A/Cs'} under CIF
-                                    </span>
+                                    {grp.accounts.length > 1 && (
+                                      <span
+                                        className="badge"
+                                        style={{
+                                          background: '#dbeafe',
+                                          color: '#1e40af',
+                                          fontSize: 11,
+                                          fontWeight: 700,
+                                        }}
+                                      >
+                                        {grp.accounts.length} A/Cs under CIF
+                                      </span>
+                                    )}
                                     {isTodayPending && (
                                       <span
                                         className="badge"
@@ -1968,6 +1970,26 @@ export default function SmaPortal() {
                                                   {r.completed ? 'Completed · Undo' : isDueToday ? '★ Mark Paid Today' : 'Mark Complete'}
                                                 </button>
                                               )}
+                                              <a
+                                                className="secondary button"
+                                                href={`https://wa.me/${grp.mobile ? (grp.mobile.startsWith('91') ? grp.mobile : '91' + grp.mobile) : ''}?text=${encodeURIComponent(
+                                                  `Indian Overseas Bank ${currentBranch?.name || ''} Branch: Dear ${r.account_name}, your loan installment of ₹${fmt(
+                                                    r.due_amount
+                                                  )} is due for repayment ${isDueToday ? 'TODAY (' + date + ')' : 'on ' + r.due_date}. Please ensure payment today to keep your account regular and prevent SMA classification.`
+                                                )}`}
+                                                target="_blank"
+                                                rel="noopener noreferrer"
+                                                style={{
+                                                  display: 'inline-flex',
+                                                  alignItems: 'center',
+                                                  gap: 4,
+                                                  fontSize: 11,
+                                                  padding: '5px 8px',
+                                                  textDecoration: 'none',
+                                                }}
+                                              >
+                                                <MessageSquare size={12} color="#25D366" /> WhatsApp
+                                              </a>
                                             </div>
                                           </td>
                                         </tr>
