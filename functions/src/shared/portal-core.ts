@@ -1,6 +1,6 @@
 import crypto from 'node:crypto';
 
-export type Role = 'admin' | 'branch' | 'reviewer' | 'srm' | 'none';
+export type Role = 'admin' | 'branch' | 'reviewer' | 'srm' | 'gm' | 'none';
 
 export interface Branch {
   sol: string;
@@ -168,9 +168,9 @@ export async function authenticateRequest(store: Store, config: PortalConfig, co
 export async function handleAuthGet(store: Store, config: PortalConfig, cookieHeader: string) {
   try {
     const auth = await authenticateRequest(store, config, cookieHeader);
-    return { status: 200, body: { user: auth.user } };
+    return { status: 200, body: { user: auth.user, authenticated: Boolean(auth?.user) } };
   } catch {
-    return { status: 200, body: { user: null } };
+    return { status: 200, body: { user: null, authenticated: false } };
   }
 }
 
@@ -459,10 +459,7 @@ export async function handlePortalGet(
         ? (await store.list('account:')).map(({ hash, salt, ...a }: any) => a)
         : [];
     const jobs = auth.user.role === 'admin' ? await store.list('out:') : [];
-    const logins =
-      auth.user.role === 'admin' || auth.user.role === 'srm' || auth.user.role === 'reviewer'
-        ? await store.list('login:' + date + ':')
-        : [];
+    const logins = await store.list('login:' + date + ':');
 
     return {
       status: 200,
@@ -534,13 +531,14 @@ export async function handlePortalPost(
       }
       const rawEmail = String(body.email || '').trim().toLowerCase();
       const rawName = String(body.name || '').trim().slice(0, 100);
+      const roleInput = body.role === 'gm' ? 'srm' : body.role;
       if (
         (rawEmail && !/^[^@\s]+@[^@\s]+\.[^@\s]+$/.test(rawEmail)) ||
-        !['branch', 'reviewer', 'srm', 'none'].includes(body.role)
+        !['branch', 'reviewer', 'srm', 'gm', 'none'].includes(body.role)
       ) {
         throw new Error('Valid role (and valid email if provided) required');
       }
-      if (body.role === 'branch' && !branches.find((b) => b.sol === body.sol)) {
+      if (roleInput === 'branch' && !branches.find((b) => b.sol === body.sol)) {
         throw new Error('Select a branch');
       }
       const old = await store.get('account:' + phone);
@@ -548,11 +546,11 @@ export async function handlePortalPost(
         phone,
         name: rawName || old?.name || '',
         email: rawEmail,
-        role: body.role,
+        role: roleInput,
         sol:
-          body.role === 'branch'
+          roleInput === 'branch'
             ? body.sol
-            : body.role === 'reviewer' || body.role === 'srm'
+            : roleInput === 'reviewer' || roleInput === 'srm'
               ? '3933'
               : null,
         version: (old?.version || 0) + 1,
@@ -638,8 +636,8 @@ export async function handlePortalPost(
       if (!branches.find((b) => b.sol === sol)) {
         throw new Error('Select a branch');
       }
-      if (auth.user.role === 'reviewer' || auth.user.role === 'srm') {
-        throw new Error('Reviewers and SRM cannot submit branch performance');
+      if (auth.user.role === 'reviewer' || auth.user.role === 'srm' || auth.user.role === 'gm') {
+        throw new Error('Reviewers and General Manager (GM) cannot submit branch performance');
       }
       const pub = await store.get('pub:' + date);
       if (!pub) {
@@ -678,12 +676,12 @@ export async function handlePortalPost(
       }
       const id = crypto.randomUUID();
       const branch = branches.find((b) => b.sol === body.sol)!;
-      const isSrm = auth.user.role === 'srm';
+      const isGm = auth.user.role === 'srm' || auth.user.role === 'gm';
       const status =
         body.status === 'clarification'
           ? 'clarification'
-          : isSrm && body.status === 'srm_direction'
-            ? 'srm_direction'
+          : isGm && (body.status === 'srm_direction' || body.status === 'gm_direction')
+            ? body.status
             : 'reviewed';
       const review = {
         id,
@@ -692,7 +690,7 @@ export async function handlePortalPost(
         text: String(body.text).slice(0, 2000),
         revision: sub.revision,
         status,
-        role: auth.user.role,
+        role: auth.user.role === 'gm' ? 'srm' : auth.user.role,
         by: auth.user.email,
         at: now,
       };
@@ -705,9 +703,9 @@ export async function handlePortalPost(
           value: {
             date,
             sol: body.sol,
-            type: isSrm ? 'SRM Direction' : 'Review reply',
+            type: isGm ? 'GM Direction' : 'Review reply',
             status: 'pending',
-            text: `${branch.name} (${body.sol}) • ${date}\n${isSrm ? '★ SRM DIRECTION:\n' : ''}${review.text}\n${isSrm ? 'Senior Regional Manager (SRM): ' : 'Reviewer: '}${auth.user.email}`,
+            text: `${branch.name} (${body.sol}) • ${date}\n${isGm ? '★ GM DIRECTION:\n' : ''}${review.text}\n${isGm ? 'General Manager (GM): ' : 'Reviewer: '}${auth.user.email}`,
           },
         },
       ]);
@@ -732,6 +730,7 @@ export async function handlePortalPost(
           key,
           value: {
             ...row,
+            roll_no: row.roll_no || prev?.roll_no || '',
             completed: Boolean(prev?.completed),
             completedAt: prev?.completed ? prev.completedAt : null,
             completedBy: prev?.completed ? prev.completedBy : null,
@@ -744,7 +743,7 @@ export async function handlePortalPost(
         await store.batch(ops.slice(i, i + 200));
       }
     } else if (action === 'repayment-status') {
-      if (auth.user.role === 'reviewer' || auth.user.role === 'srm') {
+      if (auth.user.role === 'reviewer' || auth.user.role === 'srm' || auth.user.role === 'gm') {
         throw new Error('Only branch heads or administrator can update repayment status');
       }
       const sol = auth.user.role === 'branch' ? auth.user.sol : body.sol;
@@ -757,10 +756,12 @@ export async function handlePortalPost(
         throw new Error('Repayment account not found');
       }
       const completed = Boolean(body.completed);
+      const roll_no = body.roll_no !== undefined ? String(body.roll_no).trim().slice(0, 30) : (current.roll_no || '');
       const actor = auth.user.name || auth.user.email || auth.user.phone.slice(2);
       await store.put(key, {
         ...current,
         completed,
+        roll_no,
         completedAt: completed ? now : null,
         completedBy: completed ? actor : null,
       });
@@ -837,6 +838,7 @@ export async function handlePortalPost(
           key,
           value: {
             ...row,
+            roll_no: row.roll_no || prev?.roll_no || '',
             status: prev?.status || row.status || 'pending',
             remarks: prev?.remarks || row.remarks || '',
             promise_date: prev?.promise_date || row.promise_date || null,
@@ -864,12 +866,14 @@ export async function handlePortalPost(
       }
       const promise_date = body.promise_date ? model.normalizeDate(body.promise_date, 'Promise date') : null;
       const remarks = String(body.remarks !== undefined ? body.remarks : (current.remarks || '')).slice(0, 500);
+      const roll_no = body.roll_no !== undefined ? String(body.roll_no).trim().slice(0, 30) : (current.roll_no || '');
       const actor = auth.user.name || auth.user.email || auth.user.phone.slice(2);
       await store.put(key, {
         ...current,
         status,
         promise_date,
         remarks,
+        roll_no,
         updatedAt: now,
         updatedBy: actor,
       });
@@ -879,8 +883,8 @@ export async function handlePortalPost(
       if (!branches.find((b) => b.sol === sol)) {
         throw new Error('Select a branch');
       }
-      if (auth.user.role === 'reviewer' || auth.user.role === 'srm') {
-        throw new Error('Reviewers and SRM cannot submit branch performance');
+      if (auth.user.role === 'reviewer' || auth.user.role === 'srm' || auth.user.role === 'gm') {
+        throw new Error('Reviewers and General Manager (GM) cannot submit branch performance');
       }
       const pub = await store.get('pub:' + date);
       if (!pub) {
@@ -964,6 +968,7 @@ export async function handlePortalPost(
           key,
           value: {
             ...row,
+            roll_no: row.roll_no || prev?.roll_no || '',
             funded: Boolean(prev?.funded),
             funded_amount: prev?.funded ? prev.funded_amount : 0,
             funded_at: prev?.funded ? prev.funded_at : null,
@@ -998,6 +1003,7 @@ export async function handlePortalPost(
         ? String(body.call_status).trim().toLowerCase()
         : current.call_status || 'not_called';
       const notes = body.notes !== undefined ? String(body.notes).slice(0, 500) : current.notes || '';
+      const roll_no = body.roll_no !== undefined ? String(body.roll_no).trim().slice(0, 30) : (current.roll_no || '');
       const actor = auth.user.name || auth.user.email || auth.user.phone.slice(2);
       await store.put(key, {
         ...current,
@@ -1007,6 +1013,7 @@ export async function handlePortalPost(
         funded_by: funded ? (current.funded_by || actor) : null,
         call_status,
         notes,
+        roll_no,
         updatedAt: now,
         updatedBy: actor,
       });

@@ -53,9 +53,19 @@ function getExpectedOrigin(req: express.Request): string {
 const app = express();
 app.use(express.json({ limit: '5mb' }));
 
+app.use((_req, res, next) => {
+  res.set({
+    'Cache-Control': 'no-store, no-cache, must-revalidate, proxy-revalidate, max-age=0',
+    'Pragma': 'no-cache',
+    'Expires': '0',
+    'Surrogate-Control': 'no-store',
+  });
+  next();
+});
+
 app.get('/api/auth', async (req, res) => {
   const result = await handleAuthGet(store, getConfig(), req.get('cookie') || '');
-  res.set('Cache-Control', 'no-store').status(result.status).json(result.body);
+  res.status(result.status).json(result.body);
 });
 
 app.post('/api/auth', async (req, res) => {
@@ -65,7 +75,6 @@ app.post('/api/auth', async (req, res) => {
     cookieHeader: req.get('cookie') || '',
     body: req.body,
   });
-  res.set('Cache-Control', 'no-store');
   if (result.setCookie) {
     res.set('Set-Cookie', result.setCookie);
   }
@@ -78,7 +87,7 @@ app.get('/api/portal', async (req, res) => {
     cookieHeader: req.get('cookie') || '',
     queryDate,
   });
-  res.set('Cache-Control', 'no-store').status(result.status).json(result.body);
+  res.status(result.status).json(result.body);
 });
 
 app.post('/api/portal', async (req, res) => {
@@ -88,11 +97,11 @@ app.post('/api/portal', async (req, res) => {
     cookieHeader: req.get('cookie') || '',
     body: req.body,
   });
-  res.set('Cache-Control', 'no-store').status(result.status).json(result.body);
+  res.status(result.status).json(result.body);
 });
 
 app.use((err: any, _req: express.Request, res: express.Response, _next: express.NextFunction) => {
-  res.set('Cache-Control', 'no-store').status(err?.status || 400).json({ error: err?.message || 'Invalid request' });
+  res.status(err?.status || 400).json({ error: err?.message || 'Invalid request' });
 });
 
 export const api = onRequest(

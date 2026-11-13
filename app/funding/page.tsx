@@ -19,7 +19,9 @@ import {
   RotateCcw,
   UserCheck,
   TrendingUp,
-  Clock
+  Clock,
+  Award,
+  Printer
 } from 'lucide-react';
 import Login from '../Login';
 import { parseFundingCSV, validateFundingAccounts } from '../model.mjs';
@@ -45,6 +47,8 @@ export default function FundingPortal() {
   const [busy, setBusy] = useState(false);
   const [showAll, setShowAll] = useState(false);
   const [fundingAmountInput, setFundingAmountInput] = useState<{ [id: string]: string }>({});
+  const [rollNoInput, setRollNoInput] = useState<{ [id: string]: string }>({});
+  const [selectedCertRoll, setSelectedCertRoll] = useState<string | null>(null);
   const [activeModalId, setActiveModalId] = useState<string | null>(null);
 
   const fileRef = useRef<HTMLInputElement>(null);
@@ -68,10 +72,11 @@ export default function FundingPortal() {
         }
       }
 
-      const r = await fetch('/api/auth');
+      const r = await fetch('/api/auth', { cache: 'no-store' });
       const j: any = await r.json();
-      setAuthed(Boolean(j.authenticated));
-      if (j.authenticated) load();
+      const isAuthed = Boolean(j.user || j.authenticated);
+      setAuthed(isAuthed);
+      if (isAuthed) load();
     } catch {
       setAuthed(false);
     }
@@ -81,29 +86,51 @@ export default function FundingPortal() {
     checkAuth();
   }, []);
 
-  async function load() {
-    setBusy(true);
-    setError('');
+  async function load(isSilent = false) {
+    if (!isSilent) {
+      setBusy(true);
+      setError('');
+    }
     try {
-      const r = await fetch('/api/portal?date=' + date);
+      const r = await fetch('/api/portal?date=' + date + '&_t=' + Date.now(), { cache: 'no-store' });
       const j: any = await r.json();
       if (!r.ok) throw new Error(j.error);
       setData(j);
       if (j.user.role === 'branch') {
         setSol(j.user.sol);
-        setTab('Low balance accounts');
+        setTab((curr) => curr === 'Branch summary' ? 'Low balance accounts' : curr);
       } else if (!sol && j.branches.length) {
         setSol(j.branches[0].sol);
       }
     } catch (e: any) {
-      setError(e.message);
+      if (!isSilent) setError(e.message);
     } finally {
-      setBusy(false);
+      if (!isSilent) setBusy(false);
     }
   }
 
   useEffect(() => {
     if (authed) load();
+  }, [date, authed]);
+
+  useEffect(() => {
+    if (!authed) return;
+    const timer = setInterval(() => {
+      if (document.visibilityState === 'visible') {
+        load(true);
+      }
+    }, 8000);
+    const onFocus = () => load(true);
+    const onVisibility = () => {
+      if (document.visibilityState === 'visible') load(true);
+    };
+    window.addEventListener('focus', onFocus);
+    document.addEventListener('visibilitychange', onVisibility);
+    return () => {
+      clearInterval(timer);
+      window.removeEventListener('focus', onFocus);
+      document.removeEventListener('visibilitychange', onVisibility);
+    };
   }, [date, authed]);
 
   async function act(body: any, okMsg: string) {
@@ -225,14 +252,14 @@ export default function FundingPortal() {
         <img src="/logo.svg" alt="Indian Overseas Bank Logo" className="sitelogo sitelogo-lg" />
         <h1>Low Balance Funding Portal</h1>
         <p>{error || 'Connecting to regional database…'}</p>
-        {error && <button onClick={load}>Try again</button>}
+        {error && <button onClick={() => load()}>Try again</button>}
       </main>
     );
   }
 
   const isAdmin = data.user.role === 'admin';
-  const isSrm = data.user.role === 'srm';
-  const isReviewer = data.user.role === 'reviewer' || isSrm;
+  const isGm = data.user.role === 'srm' || data.user.role === 'gm';
+  const isReviewer = data.user.role === 'reviewer' || isGm;
   const isBranch = data.user.role === 'branch';
 
   const currentBranch = data.branches.find((b: any) => b.sol === sol);
@@ -311,6 +338,117 @@ export default function FundingPortal() {
     downloadCsv(`IOB_Low_Balance_Funding_${date}.csv`, rows.map((r) => r.join(',')).join('\n'));
   }
 
+  const logins: any[] = data.logins || [];
+  const branchLogins = logins.filter((l: any) => l.role === 'branch');
+  const loggedInSols = new Set(branchLogins.map((l: any) => l.sol));
+
+  // Branch Summary Metrics with sorting: 1. Logged in today at top, 2. Reduction in accounts due (funded accounts)
+  const branchSummaryMetrics = (data.branches || []).map((b: any) => {
+    const branchList = allAccounts.filter((a: any) => a.sol === b.sol);
+    const fList = branchList.filter((a: any) => a.funded);
+    const pList = branchList.filter((a: any) => !a.funded);
+    const cCount = branchList.filter((a: any) => a.call_status && a.call_status !== 'not_called').length;
+    const fAmt = fList.reduce((acc, a) => acc + Number(a.funded_amount || 0), 0);
+    const pct = branchList.length ? Math.round((cCount / branchList.length) * 100) : 0;
+    const isLoggedIn = loggedInSols.has(b.sol);
+
+    return {
+      branch: b,
+      isLoggedIn,
+      branchList,
+      fList,
+      pList,
+      cCount,
+      fAmt,
+      pct,
+      reduction: fList.length,
+    };
+  }).sort((a: any, b: any) => {
+    // 1. Those who have logged in today at the top
+    if (a.isLoggedIn !== b.isLoggedIn) return a.isLoggedIn ? -1 : 1;
+    // 2. Further sorted by reduction in accounts due (highest funded/reduced at top)
+    if (b.reduction !== a.reduction) return b.reduction - a.reduction;
+    // 3. Funds mobilized
+    if (b.fAmt !== a.fAmt) return b.fAmt - a.fAmt;
+    return a.branch.sol.localeCompare(b.branch.sol);
+  });
+
+  // Roll No Aggregations for Appreciation Certificate
+  const rollStatsMap = new Map<string, { rollNo: string; count: number; fundedCount: number; amount: number; sols: Set<string> }>();
+  for (const a of branchAccounts) {
+    const roll = (a.roll_no || '').trim();
+    if (!roll) continue;
+    let stat = rollStatsMap.get(roll);
+    if (!stat) {
+      stat = { rollNo: roll, count: 0, fundedCount: 0, amount: 0, sols: new Set<string>() };
+      rollStatsMap.set(roll, stat);
+    }
+    stat.count++;
+    if (a.funded) {
+      stat.fundedCount++;
+      stat.amount += Number(a.funded_amount || 0);
+    }
+    if (a.sol) stat.sols.add(a.sol);
+  }
+  const rollLeaderboard = Array.from(rollStatsMap.values()).sort(
+    (a, b) => b.fundedCount - a.fundedCount || b.amount - a.amount
+  );
+
+  // Ticker items for branches that logged in or funded accounts
+  const tickerItems: Array<{
+    id: string;
+    sol: string;
+    branchName: string;
+    text: string;
+    icon: string;
+    time: string;
+  }> = [];
+
+  for (const l of branchLogins) {
+    const b = data.branches.find((x: any) => x.sol === l.sol);
+    const timeStr = l.lastActive
+      ? new Date(l.lastActive).toLocaleTimeString('en-IN', { timeZone: 'Asia/Kolkata', hour: '2-digit', minute: '2-digit' })
+      : '';
+    tickerItems.push({
+      id: `login-${l.phone}`,
+      sol: l.sol,
+      branchName: b?.name || l.sol,
+      text: `${b?.name || 'Branch'} (SOL ${l.sol}): Head ${l.name || l.phone?.slice(2)} logged in${timeStr ? ' at ' + timeStr : ''}`,
+      icon: '🟢',
+      time: l.lastActive || '',
+    });
+  }
+
+  for (const a of allAccounts) {
+    if (a.funded) {
+      const b = data.branches.find((x: any) => x.sol === a.sol);
+      const timeStr = a.funded_at
+        ? new Date(a.funded_at).toLocaleTimeString('en-IN', { timeZone: 'Asia/Kolkata', hour: '2-digit', minute: '2-digit' })
+        : '';
+      tickerItems.push({
+        id: `fund-${a.id}`,
+        sol: a.sol,
+        branchName: b?.name || a.sol,
+        text: `${b?.name || 'Branch'} (SOL ${a.sol}): Funded ₹${fmt(a.funded_amount)} for ${a.customer_name}${a.roll_no ? ' · Roll: ' + a.roll_no : ''}${timeStr ? ' at ' + timeStr : ''}`,
+        icon: '💰',
+        time: a.funded_at || '',
+      });
+    }
+  }
+
+  tickerItems.sort((a, b) => b.time.localeCompare(a.time));
+
+  if (!tickerItems.length) {
+    tickerItems.push({
+      id: 'standby',
+      sol: data.branches[0]?.sol || '0174',
+      branchName: data.branches[0]?.name || 'Dindigul Region',
+      text: `Dindigul Regional Office: Live CASA funding ticker standby · ${data.branches.length} branches connected`,
+      icon: '⚡',
+      time: '',
+    });
+  }
+
   return (
     <div className={'shell role-' + data.user.role}>
       <aside>
@@ -346,6 +484,17 @@ export default function FundingPortal() {
               Branch summary
             </button>
           )}
+          <button
+            className={tab === 'Appreciation & Certificates' ? 'selected' : ''}
+            onClick={() => {
+              setTab('Appreciation & Certificates');
+              setSelectedCertRoll(null);
+              setNotice('');
+            }}
+          >
+            <Award size={18} />
+            Appreciation &amp; Certificates
+          </button>
           {isAdmin && (
             <button
               className={tab === 'Upload data' ? 'selected' : ''}
@@ -367,8 +516,8 @@ export default function FundingPortal() {
           <div>
             {data.user.role === 'admin'
               ? 'Regional administrator'
-              : data.user.role === 'srm'
-                ? 'Senior Regional Manager'
+              : isGm
+                ? 'General Manager (GM)'
                 : data.user.role === 'branch'
                   ? 'Branch head'
                   : 'Reviewer'}
@@ -383,6 +532,23 @@ export default function FundingPortal() {
             Dindigul region <ChevronRight size={14} /> Low Balance Funding <ChevronRight size={14} /> {tab}
           </div>
           <div className="headeractions">
+            <span
+              title="Real-time live sync every 8 seconds"
+              style={{
+                display: 'inline-flex',
+                alignItems: 'center',
+                gap: 5,
+                fontSize: 11,
+                color: '#059669',
+                fontWeight: 700,
+                background: '#ecfdf5',
+                padding: '4px 8px',
+                borderRadius: 20,
+                border: '1px solid #a7f3d0',
+              }}
+            >
+              <span style={{ width: 6, height: 6, borderRadius: '50%', background: '#10b981', display: 'inline-block' }} /> Live Sync
+            </span>
             <button
               type="button"
               className="secondary"
@@ -421,13 +587,13 @@ export default function FundingPortal() {
             >
               SMA Follow-up <ExternalLink size={13} />
             </button>
-            <span className={'private ' + (isSrm ? 'srm-tag' : '')}>
+            <span className={'private ' + (isGm ? 'srm-tag' : '')}>
               {data.user.role === 'branch'
                 ? 'Branch head'
                 : data.user.role === 'reviewer'
                   ? 'Reviewer'
-                  : data.user.role === 'srm'
-                    ? 'Senior Regional Manager'
+                  : isGm
+                    ? 'General Manager (GM)'
                     : 'Admin'}
             </span>
             <button
@@ -443,7 +609,7 @@ export default function FundingPortal() {
             >
               Sign out
             </button>
-            <button className="icon" onClick={load} aria-label="Refresh">
+            <button className="icon" onClick={() => load()} aria-label="Refresh">
               <RefreshCw size={17} />
             </button>
           </div>
@@ -465,6 +631,33 @@ export default function FundingPortal() {
               As on date
               <input type="date" value={date} onChange={(e) => e.target.value && setDate(e.target.value)} />
             </label>
+          </div>
+
+          {/* RUNNING TICKER FOR BRANCH LOGINS & FUNDING UPDATES */}
+          <div className="tickertape-wrap no-print">
+            <div className="tickertape-label">
+              <span className="live-dot" /> REGIONAL LIVE PULSE
+            </div>
+            <div className="tickertape-track">
+              <div className="tickertape-content">
+                {tickerItems.concat(tickerItems).map((item, idx) => (
+                  <button
+                    key={`${item.id}-${idx}`}
+                    type="button"
+                    className="tickertape-item"
+                    onClick={() => {
+                      setSol(item.sol);
+                      setTab('Low balance accounts');
+                    }}
+                    title={`Click to open ${item.branchName} (${item.sol}) accounts`}
+                  >
+                    <span className="tickertape-icon">{item.icon}</span>
+                    <span className="tickertape-text">{item.text}</span>
+                    <span className="tickertape-link">Open branch →</span>
+                  </button>
+                ))}
+              </div>
+            </div>
           </div>
 
           {error && <div className="alert error" role="alert">{error}</div>}
@@ -621,6 +814,24 @@ export default function FundingPortal() {
                                     {a.cif ? ` · CIF: ${a.cif}` : ''}
                                     {!isBranch && !sol && ` · SOL ${a.sol}`}
                                   </small>
+                                  {a.roll_no && (
+                                    <div>
+                                      <span
+                                        className="badge"
+                                        style={{
+                                          background: '#fef3c7',
+                                          color: '#92400e',
+                                          fontSize: 10,
+                                          fontWeight: 700,
+                                          padding: '1px 6px',
+                                          marginTop: 3,
+                                          display: 'inline-block',
+                                        }}
+                                      >
+                                        🏅 Roll: {a.roll_no}
+                                      </span>
+                                    </div>
+                                  )}
                                 </td>
 
                                 <td data-label="Last Balance">
@@ -741,7 +952,7 @@ export default function FundingPortal() {
                                       >
                                         <Check size={12} /> Funded ₹{fmt(a.funded_amount)}
                                       </span>
-                                      {a.funded_by && <small>By {a.funded_by}</small>}
+                                      {a.funded_by && <small>By {a.funded_by}{a.roll_no ? ` (${a.roll_no})` : ''}</small>}
                                     </div>
                                   ) : (
                                     <span
@@ -775,42 +986,73 @@ export default function FundingPortal() {
                                       <RotateCcw size={12} /> Undo
                                     </button>
                                   ) : (
-                                    <div style={{ display: 'flex', gap: 4, alignItems: 'center' }}>
-                                      <input
-                                        type="number"
-                                        placeholder="₹ amt"
-                                        style={{ width: 85, fontSize: 12, padding: '4px 6px' }}
-                                        value={fundingAmountInput[a.id] ?? ''}
-                                        onChange={(e) =>
-                                          setFundingAmountInput({
-                                            ...fundingAmountInput,
-                                            [a.id]: e.target.value,
-                                          })
-                                        }
-                                      />
-                                      <button
-                                        type="button"
-                                        className="button"
-                                        disabled={busy}
-                                        style={{
-                                          fontSize: 12,
-                                          padding: '5px 10px',
-                                          background: '#059669',
-                                          color: '#fff',
-                                          whiteSpace: 'nowrap',
-                                        }}
-                                        onClick={() => {
-                                          const entered = Number(fundingAmountInput[a.id] || 500);
-                                          updateFundingStatus(
-                                            a.sol,
-                                            a.id,
-                                            { funded: true, funded_amount: entered },
-                                            `✓ Account marked funded with ₹${fmt(entered)}!`
-                                          );
-                                        }}
-                                      >
-                                        Mark Funded
-                                      </button>
+                                    <div style={{ display: 'flex', flexDirection: 'column', gap: 4 }}>
+                                      <div style={{ display: 'flex', gap: 4, alignItems: 'center' }}>
+                                        <input
+                                          type="number"
+                                          placeholder="₹ amt"
+                                          style={{ width: 75, fontSize: 12, padding: '4px 6px' }}
+                                          value={fundingAmountInput[a.id] ?? ''}
+                                          onChange={(e) =>
+                                            setFundingAmountInput({
+                                              ...fundingAmountInput,
+                                              [a.id]: e.target.value,
+                                            })
+                                          }
+                                        />
+                                        <input
+                                          type="text"
+                                          placeholder="Roll No"
+                                          title="Staff roll number for certificate tracking"
+                                          style={{ width: 75, fontSize: 12, padding: '4px 6px' }}
+                                          value={
+                                            rollNoInput[a.id] !== undefined
+                                              ? rollNoInput[a.id]
+                                              : (typeof window !== 'undefined'
+                                                  ? localStorage.getItem('iob_staff_roll_no') || a.roll_no || ''
+                                                  : a.roll_no || '')
+                                          }
+                                          onChange={(e) =>
+                                            setRollNoInput({
+                                              ...rollNoInput,
+                                              [a.id]: e.target.value,
+                                            })
+                                          }
+                                        />
+                                        <button
+                                          type="button"
+                                          className="button"
+                                          disabled={busy}
+                                          style={{
+                                            fontSize: 12,
+                                            padding: '5px 10px',
+                                            background: '#059669',
+                                            color: '#fff',
+                                            whiteSpace: 'nowrap',
+                                          }}
+                                          onClick={() => {
+                                            const entered = Number(fundingAmountInput[a.id] || 500);
+                                            const roll = (
+                                              rollNoInput[a.id] !== undefined
+                                                ? rollNoInput[a.id]
+                                                : (typeof window !== 'undefined'
+                                                    ? localStorage.getItem('iob_staff_roll_no') || a.roll_no || ''
+                                                    : a.roll_no || '')
+                                            ).trim();
+                                            if (roll && typeof window !== 'undefined') {
+                                              localStorage.setItem('iob_staff_roll_no', roll);
+                                            }
+                                            updateFundingStatus(
+                                              a.sol,
+                                              a.id,
+                                              { funded: true, funded_amount: entered, roll_no: roll },
+                                              `✓ Account marked funded with ₹${fmt(entered)}! Recorded for Roll No ${roll || 'Staff'}.`
+                                            );
+                                          }}
+                                        >
+                                          Mark Funded
+                                        </button>
+                                      </div>
                                     </div>
                                   )}
                                 </td>
@@ -867,9 +1109,24 @@ export default function FundingPortal() {
                   <h2>Branch-wise Low Balance Funding Summary</h2>
                   <p>Regional overview of low balance accounts, call progress, and funding rate.</p>
                 </div>
-                <button type="button" className="secondary" onClick={exportCsv}>
-                  <Download size={16} /> Export Region Summary
-                </button>
+                <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
+                  <span
+                    className="badge"
+                    style={{
+                      background: '#eff6ff',
+                      color: '#1d4ed8',
+                      fontSize: 11,
+                      fontWeight: 600,
+                      padding: '5px 10px',
+                      border: '1px solid #bfdbfe',
+                    }}
+                  >
+                    Ranked: Logged in today first · Sorted by reduction in accounts due
+                  </span>
+                  <button type="button" className="secondary" onClick={exportCsv}>
+                    <Download size={16} /> Export Region Summary
+                  </button>
+                </div>
               </div>
 
               <div className="tablewrap branchlist">
@@ -879,49 +1136,79 @@ export default function FundingPortal() {
                       <th>BRANCH</th>
                       <th>TOTAL LOW BAL</th>
                       <th>PENDING</th>
-                      <th>FUNDED ACCTS</th>
+                      <th>FUNDED ACCTS (REDUCTION)</th>
                       <th>FUNDS MOBILIZED</th>
                       <th>CALLED %</th>
                       <th />
                     </tr>
                   </thead>
                   <tbody>
-                    {data.branches.map((b: any) => {
-                      const branchList = allAccounts.filter((a: any) => a.sol === b.sol);
-                      const fList = branchList.filter((a: any) => a.funded);
-                      const pList = branchList.filter((a: any) => !a.funded);
-                      const cCount = branchList.filter((a: any) => a.call_status && a.call_status !== 'not_called').length;
-                      const fAmt = fList.reduce((acc, a) => acc + Number(a.funded_amount || 0), 0);
-                      const pct = branchList.length ? Math.round((cCount / branchList.length) * 100) : 0;
-
+                    {branchSummaryMetrics.map((m: any) => {
                       return (
-                        <tr key={b.sol}>
+                        <tr key={m.branch.sol} style={{ background: m.isLoggedIn ? '#fcfdfd' : '#fff' }}>
                           <td>
-                            <b>{b.name}</b>
-                            <small>SOL {b.sol}</small>
+                            <b>{m.branch.name}</b>
+                            <small>SOL {m.branch.sol}</small>
+                            <div>
+                              {m.isLoggedIn ? (
+                                <span
+                                  className="badge"
+                                  style={{
+                                    background: '#dcfce7',
+                                    color: '#166534',
+                                    fontSize: 10,
+                                    fontWeight: 700,
+                                    display: 'inline-flex',
+                                    alignItems: 'center',
+                                    gap: 3,
+                                    marginTop: 3,
+                                  }}
+                                >
+                                  <CheckCircle2 size={11} /> Logged in today
+                                </span>
+                              ) : (
+                                <span
+                                  className="badge"
+                                  style={{
+                                    background: '#fef2f2',
+                                    color: '#991b1b',
+                                    fontSize: 10,
+                                    fontWeight: 600,
+                                    marginTop: 3,
+                                  }}
+                                >
+                                  Pending login
+                                </span>
+                              )}
+                            </div>
                           </td>
-                          <td data-label="Total">{branchList.length}</td>
+                          <td data-label="Total">{m.branchList.length}</td>
                           <td data-label="Pending">
-                            <span style={{ color: pList.length > 0 ? '#dc2626' : '#166534', fontWeight: 600 }}>
-                              {pList.length}
+                            <span style={{ color: m.pList.length > 0 ? '#dc2626' : '#166534', fontWeight: 600 }}>
+                              {m.pList.length}
                             </span>
                           </td>
                           <td data-label="Funded">
-                            <span style={{ color: '#059669', fontWeight: 600 }}>{fList.length}</span>
+                            <span style={{ color: '#059669', fontWeight: 700 }}>{m.fList.length}</span>
+                            {m.reduction > 0 && (
+                              <small style={{ display: 'block', color: '#1e40af', fontWeight: 700 }}>
+                                ↓ {m.reduction} funded
+                              </small>
+                            )}
                           </td>
                           <td data-label="Mobilized">
-                            <b>₹{fmt(fAmt)}</b>
+                            <b>₹{fmt(m.fAmt)}</b>
                           </td>
                           <td data-label="Called %">
-                            <span>{pct}%</span>
-                            <small>{cCount} of {branchList.length}</small>
+                            <span>{m.pct}%</span>
+                            <small>{m.cCount} of {m.branchList.length}</small>
                           </td>
                           <td>
                             <button
                               type="button"
                               className="textbutton"
                               onClick={() => {
-                                setSol(b.sol);
+                                setSol(m.branch.sol);
                                 setTab('Low balance accounts');
                               }}
                             >
@@ -934,6 +1221,152 @@ export default function FundingPortal() {
                   </tbody>
                 </table>
               </div>
+            </div>
+          )}
+
+          {/* TAB: APPRECIATION & CERTIFICATES */}
+          {tab === 'Appreciation & Certificates' && (
+            <div className="panel">
+              {selectedCertRoll ? (
+                <CertificateView
+                  category="funding"
+                  rollNo={selectedCertRoll}
+                  branchName={
+                    data.branches.find((b: any) =>
+                      rollStatsMap.get(selectedCertRoll)?.sols.has(b.sol)
+                    )?.name || ''
+                  }
+                  sol={Array.from(rollStatsMap.get(selectedCertRoll)?.sols || []).join(', ')}
+                  count={rollStatsMap.get(selectedCertRoll)?.fundedCount || 0}
+                  amount={rollStatsMap.get(selectedCertRoll)?.amount || 0}
+                  date={date}
+                  onClose={() => setSelectedCertRoll(null)}
+                />
+              ) : (
+                <>
+                  <div className="paneltop">
+                    <div>
+                      <h2>🏅 Staff Appreciation &amp; Certificate Leaderboard</h2>
+                      <p>
+                        Staff officers mobilizing and funding low balance accounts qualify for official Certificates of Appreciation
+                        conferred by the General Manager (GM), Dindigul Regional Office.
+                      </p>
+                    </div>
+                  </div>
+
+                  <div className="stats" style={{ marginBottom: 20 }}>
+                    <div>
+                      <span>Staff Members Active</span>
+                      <strong style={{ color: '#0284c7' }}>{rollLeaderboard.length}</strong>
+                      <small>Followed up with Roll No</small>
+                    </div>
+                    <div>
+                      <span>Accounts Funded</span>
+                      <strong style={{ color: '#059669' }}>
+                        {rollLeaderboard.reduce((acc, s) => acc + s.fundedCount, 0)}
+                      </strong>
+                      <small>CASA accounts activated</small>
+                    </div>
+                    <div>
+                      <span>Total Funds Mobilized</span>
+                      <strong style={{ color: '#059669' }}>
+                        ₹{fmt(rollLeaderboard.reduce((acc, s) => acc + s.amount, 0))}
+                      </strong>
+                      <small>Deposited & regularized</small>
+                    </div>
+                  </div>
+
+                  {rollLeaderboard.length ? (
+                    <div className="tablewrap branchlist">
+                      <table>
+                        <thead>
+                          <tr>
+                            <th>RANK</th>
+                            <th>STAFF ROLL NO</th>
+                            <th>BRANCH (SOL)</th>
+                            <th>ACCOUNTS FOLLOWED</th>
+                            <th>ACCOUNTS FUNDED</th>
+                            <th>TOTAL MOBILIZED</th>
+                            <th>SUCCESS RATE</th>
+                            <th>CERTIFICATE OF APPRECIATION</th>
+                          </tr>
+                        </thead>
+                        <tbody>
+                          {rollLeaderboard.map((stat, idx) => {
+                            const pct = stat.count ? Math.round((stat.fundedCount / stat.count) * 100) : 0;
+                            const branchSol = Array.from(stat.sols)[0] || '';
+                            const branchName = data.branches.find((b: any) => b.sol === branchSol)?.name || '';
+
+                            return (
+                              <tr key={stat.rollNo}>
+                                <td>
+                                  <span
+                                    style={{
+                                      fontWeight: 800,
+                                      color: idx === 0 ? '#d97706' : idx === 1 ? '#64748b' : idx === 2 ? '#b45309' : '#334155',
+                                      fontSize: 14,
+                                    }}
+                                  >
+                                    #{idx + 1}
+                                  </span>
+                                </td>
+                                <td data-label="Staff Roll No">
+                                  <b style={{ color: '#0284c7', fontSize: 14 }}>{stat.rollNo}</b>
+                                </td>
+                                <td data-label="Branch">
+                                  <b>{branchName || 'Regional Staff'}</b>
+                                  <small>SOL {branchSol}</small>
+                                </td>
+                                <td data-label="Followed">
+                                  <b>{stat.count} accounts</b>
+                                </td>
+                                <td data-label="Funded">
+                                  <b style={{ color: '#059669' }}>{stat.fundedCount} accounts</b>
+                                </td>
+                                <td data-label="Total Mobilized">
+                                  <b style={{ color: '#059669' }}>₹{fmt(stat.amount)}</b>
+                                </td>
+                                <td data-label="Success Rate">
+                                  <span className={'badge ' + (pct >= 50 ? 'reviewed' : 'pending')}>
+                                    {pct}%
+                                  </span>
+                                </td>
+                                <td>
+                                  <button
+                                    type="button"
+                                    className="button"
+                                    style={{
+                                      fontSize: 12,
+                                      padding: '6px 12px',
+                                      background: '#0284c7',
+                                      color: '#fff',
+                                      display: 'inline-flex',
+                                      alignItems: 'center',
+                                      gap: 5,
+                                    }}
+                                    onClick={() => setSelectedCertRoll(stat.rollNo)}
+                                  >
+                                    <Award size={14} /> View Certificate
+                                  </button>
+                                </td>
+                              </tr>
+                            );
+                          })}
+                        </tbody>
+                      </table>
+                    </div>
+                  ) : (
+                    <div className="empty">
+                      <Award size={36} color="#94a3b8" />
+                      <h3>No Staff Roll Numbers Recorded Yet</h3>
+                      <p>
+                        When marking accounts funded, enter your Staff Roll No.
+                        Achievements will automatically appear here on the leaderboard for General Manager (GM) appreciation.
+                      </p>
+                    </div>
+                  )}
+                </>
+              )}
             </div>
           )}
 
@@ -982,6 +1415,291 @@ export default function FundingPortal() {
           <span>CASA Growth &amp; Low Balance Funding Desk</span>
         </footer>
       </main>
+      <style>{`
+        .tickertape-wrap {
+          display: flex;
+          align-items: center;
+          background: #0f172a;
+          border-radius: 8px;
+          overflow: hidden;
+          margin-bottom: 20px;
+          box-shadow: 0 4px 14px rgba(15, 23, 42, 0.12);
+          border: 1px solid #1e293b;
+        }
+        .tickertape-label {
+          display: flex;
+          align-items: center;
+          gap: 6px;
+          background: #0284c7;
+          color: #fff;
+          font-size: 11px;
+          font-weight: 800;
+          letter-spacing: 0.5px;
+          padding: 9px 14px;
+          white-space: nowrap;
+          z-index: 2;
+          box-shadow: 2px 0 8px rgba(0,0,0,0.25);
+        }
+        .live-dot {
+          width: 7px;
+          height: 7px;
+          border-radius: 50%;
+          background: #fff;
+          display: inline-block;
+          animation: pulse 1.5s infinite;
+        }
+        .tickertape-track {
+          flex: 1;
+          overflow: hidden;
+          position: relative;
+          display: flex;
+        }
+        .tickertape-content {
+          display: flex;
+          align-items: center;
+          gap: 20px;
+          white-space: nowrap;
+          animation: tickerScroll 40s linear infinite;
+        }
+        .tickertape-content:hover {
+          animation-play-state: paused;
+        }
+        .tickertape-item {
+          display: inline-flex;
+          align-items: center;
+          gap: 8px;
+          background: rgba(255, 255, 255, 0.08);
+          border: 1px solid rgba(255, 255, 255, 0.15);
+          color: #f1f5f9;
+          padding: 5px 12px;
+          border-radius: 20px;
+          font-size: 12px;
+          cursor: pointer;
+          transition: all 0.2s ease;
+          text-decoration: none;
+        }
+        .tickertape-item:hover {
+          background: #0284c7;
+          border-color: #38bdf8;
+          color: #fff;
+          transform: translateY(-1px);
+        }
+        .tickertape-icon {
+          font-size: 12px;
+        }
+        .tickertape-text {
+          font-weight: 500;
+        }
+        .tickertape-link {
+          font-size: 11px;
+          color: #93c5fd;
+          font-weight: 700;
+          margin-left: 4px;
+          text-decoration: underline;
+        }
+        .tickertape-item:hover .tickertape-link {
+          color: #fff;
+        }
+        @keyframes tickerScroll {
+          0% { transform: translateX(0); }
+          100% { transform: translateX(-50%); }
+        }
+        @media print {
+          body * { visibility: hidden; }
+          .cert-container, .cert-container * { visibility: visible; }
+          .cert-container { position: absolute; left: 0; top: 0; width: 100% !important; border: 8px double #1e3a8a !important; }
+          .no-print { display: none !important; }
+        }
+      `}</style>
+    </div>
+  );
+}
+
+function CertificateView({
+  category,
+  rollNo,
+  branchName,
+  sol,
+  count,
+  amount,
+  date,
+  onClose,
+}: {
+  category: 'sma' | 'funding';
+  rollNo: string;
+  branchName: string;
+  sol: string;
+  count: number;
+  amount: number;
+  date: string;
+  onClose: () => void;
+}) {
+  const isSma = category === 'sma';
+  return (
+    <div className="cert-wrapper">
+      <div className="no-print" style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 20 }}>
+        <button className="secondary" onClick={onClose} style={{ display: 'inline-flex', alignItems: 'center', gap: 6 }}>
+          ← Back to Leaderboard
+        </button>
+        <button
+          className="button"
+          onClick={() => window.print()}
+          style={{
+            display: 'inline-flex',
+            alignItems: 'center',
+            gap: 8,
+            background: '#1e3a8a',
+            color: '#fff',
+            padding: '10px 20px',
+            fontSize: 14,
+            fontWeight: 700,
+            borderRadius: 8,
+          }}
+        >
+          <Printer size={16} /> Print Certificate
+        </button>
+      </div>
+
+      <div
+        className="cert-container"
+        style={{
+          background: '#fff',
+          border: '10px double #1e3a8a',
+          padding: '44px 36px',
+          borderRadius: 16,
+          boxShadow: '0 8px 30px rgba(0,0,0,0.06)',
+          textAlign: 'center',
+          position: 'relative',
+          maxWidth: 800,
+          margin: '0 auto',
+          fontFamily: 'system-ui, -apple-system, sans-serif',
+        }}
+      >
+        <div style={{ position: 'absolute', top: 10, left: 10, right: 10, bottom: 10, border: '1px solid #d97706', pointerEvents: 'none' }} />
+
+        <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 14, marginBottom: 12 }}>
+          <img src="/logo.svg" alt="Indian Overseas Bank" style={{ height: 50 }} />
+          <div style={{ textAlign: 'left' }}>
+            <h2 style={{ margin: 0, fontSize: 22, fontWeight: 800, color: '#1e3a8a', letterSpacing: '0.5px' }}>
+              INDIAN OVERSEAS BANK
+            </h2>
+            <p style={{ margin: 0, fontSize: 13, fontWeight: 700, color: '#b45309', letterSpacing: '1px' }}>
+              DINDIGUL REGIONAL OFFICE (SOL 3933)
+            </p>
+          </div>
+        </div>
+
+        <div style={{ margin: '20px 0 14px' }}>
+          <span style={{ fontSize: 11, fontWeight: 700, letterSpacing: '3px', textTransform: 'uppercase', color: '#64748b' }}>
+            REGIONAL HONOUR OF EXCELLENCE
+          </span>
+          <h1
+            style={{
+              margin: '8px 0',
+              fontSize: 30,
+              fontWeight: 900,
+              color: '#0f172a',
+              letterSpacing: '1px',
+              textTransform: 'uppercase',
+            }}
+          >
+            Certificate of Appreciation
+          </h1>
+          <div style={{ width: 80, height: 4, background: '#d97706', margin: '0 auto 16px', borderRadius: 2 }} />
+        </div>
+
+        <p style={{ fontSize: 15, color: '#475569', margin: '0 0 14px', fontStyle: 'italic' }}>
+          This Certificate of Appreciation is proudly conferred upon
+        </p>
+
+        <div
+          style={{
+            background: '#f8fafc',
+            border: '2px solid #e2e8f0',
+            padding: '12px 28px',
+            borderRadius: 12,
+            display: 'inline-block',
+            margin: '0 auto 16px',
+          }}
+        >
+          <div style={{ fontSize: 12, color: '#64748b', fontWeight: 600 }}>STAFF ROLL NUMBER</div>
+          <div style={{ fontSize: 26, fontWeight: 800, color: '#1e3a8a', letterSpacing: '1px' }}>
+            {rollNo || 'Branch Officer'}
+          </div>
+          <div style={{ fontSize: 13, color: '#334155', fontWeight: 600, marginTop: 4 }}>
+            {branchName ? `${branchName} Branch (${sol})` : `SOL ${sol || 'Dindigul Region'}`}
+          </div>
+        </div>
+
+        <p
+          style={{
+            fontSize: 15,
+            lineHeight: 1.6,
+            color: '#1e293b',
+            maxWidth: 660,
+            margin: '12px auto 28px',
+          }}
+        >
+          {isSma
+            ? `In grateful recognition of extraordinary diligence, relentless borrower outreach, and exemplary results in SMA Prevention & Timely Recovery, successfully following up and regularizing ${count} accounts amounting to ₹${fmt(
+                amount
+              )} to safeguard Regional asset quality.`
+            : `In grateful recognition of outstanding dedication, proactive customer engagement, and exemplary results in Funding Low Balance Accounts, successfully mobilizing ₹${fmt(
+                amount
+              )} across ${count} accounts to strengthen low-cost deposits and revitalize customer relationships.`}
+        </p>
+
+        <div
+          style={{
+            display: 'flex',
+            justifyContent: 'space-between',
+            alignItems: 'flex-end',
+            marginTop: 36,
+            paddingTop: 20,
+            borderTop: '1px dashed #cbd5e1',
+          }}
+        >
+          <div style={{ textAlign: 'center', minWidth: 160 }}>
+            <div style={{ fontSize: 13, fontWeight: 700, color: '#334155' }}>{date}</div>
+            <div style={{ width: 130, height: 1, background: '#94a3b8', margin: '6px auto' }} />
+            <div style={{ fontSize: 11, fontWeight: 600, color: '#64748b', textTransform: 'uppercase' }}>
+              Date of Issue
+            </div>
+          </div>
+
+          <div style={{ textAlign: 'center' }}>
+            <div
+              style={{
+                display: 'inline-flex',
+                alignItems: 'center',
+                justifyContent: 'center',
+                width: 58,
+                height: 58,
+                borderRadius: '50%',
+                border: '3px double #d97706',
+                background: '#fffbeb',
+                color: '#b45309',
+                fontWeight: 800,
+                fontSize: 10,
+                lineHeight: 1.1,
+              }}
+            >
+              SEAL OF
+              <br />
+              HONOUR
+            </div>
+          </div>
+
+          <div style={{ textAlign: 'center', minWidth: 200 }}>
+            <div style={{ fontSize: 14, fontWeight: 800, color: '#1e3a8a' }}>General Manager (GM)</div>
+            <div style={{ width: 170, height: 1, background: '#94a3b8', margin: '6px auto' }} />
+            <div style={{ fontSize: 11, fontWeight: 600, color: '#64748b', textTransform: 'uppercase' }}>
+              Regional Office, Dindigul
+            </div>
+            <div style={{ fontSize: 10, color: '#94a3b8' }}>Indian Overseas Bank</div>
+          </div>
+        </div>
+      </div>
     </div>
   );
 }
