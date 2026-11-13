@@ -46,6 +46,8 @@ export interface ModelHelpers {
   parseFundingCSV?: (text: string) => any[];
   normalizeDate: (v: any, label?: string) => string;
   number: (v: any, label: string, integer?: boolean, signed?: boolean) => number;
+  validateCampaignData?: (rows: any[], branches: Branch[]) => any[];
+  parseCampaignCSV?: (text: string) => any[];
 }
 
 export class HttpError extends Error {
@@ -440,6 +442,7 @@ export async function handlePortalGet(
     }
 
     const campaigns = await store.list('campaign:');
+    const campData = await store.list('campdata:');
     const rawRepayments =
       auth.user.role === 'branch'
         ? await store.list('repay:' + auth.user.sol + ':')
@@ -473,6 +476,7 @@ export async function handlePortalGet(
         subs,
         reviews,
         campaigns,
+        campData,
         repayments,
         smaAccounts: rawSma,
         fundingAccounts: rawFunding,
@@ -1096,6 +1100,19 @@ export async function handlePortalPost(
         await store.batch(chunk);
         chunk = [];
       }
+      return { status: 200, body: { ok: true, imported: validated.length } };
+    } else if (action === 'upload-campaign-data') {
+      requireAdmin();
+      if (!body.campaign_id) throw new Error('Campaign ID is required');
+      const camp = await store.get('campaign:' + body.campaign_id);
+      if (!camp) throw new Error('Campaign not found');
+      const validated = model.validateCampaignData ? model.validateCampaignData(body.rows, branches) : body.rows;
+      await store.put('campdata:' + body.campaign_id, {
+        campaign_id: body.campaign_id,
+        rows: validated,
+        updatedAt: now,
+        updatedBy: auth.user.email,
+      });
       return { status: 200, body: { ok: true, imported: validated.length } };
     } else if (action === 'funding-status') {
       const sol = auth.user.role === 'branch' ? auth.user.sol : body.sol;

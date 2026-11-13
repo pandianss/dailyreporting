@@ -285,6 +285,35 @@ export default function SmaPortal() {
     );
   }
 
+  async function toggleCifGroup(accounts: any[]) {
+    if (!accounts || !accounts.length) return;
+    const allCompleted = accounts.every((a: any) => a.completed);
+    if (allCompleted) {
+      for (const acc of accounts) {
+        await act(
+          { action: 'repayment-status', sol: acc.sol, id: acc.id, completed: false },
+          'Repayments marked pending.'
+        );
+      }
+      return;
+    }
+    const defaultRoll = accounts.find((a: any) => a.roll_no)?.roll_no || (typeof window !== 'undefined' ? localStorage.getItem('iob_staff_roll_no') || '' : '');
+    const roll = window.prompt(`Staff Roll No (marking ${accounts.filter((a: any) => !a.completed).length} accounts under CIF as paid):`, defaultRoll);
+    if (roll === null) return;
+    const trimmedRoll = roll.trim();
+    if (trimmedRoll && typeof window !== 'undefined') {
+      localStorage.setItem('iob_staff_roll_no', trimmedRoll);
+    }
+    for (const acc of accounts) {
+      if (!acc.completed) {
+        await act(
+          { action: 'repayment-status', sol: acc.sol, id: acc.id, completed: true, roll_no: trimmedRoll },
+          'Repayment marked completed.'
+        );
+      }
+    }
+  }
+
   async function updateBorrowerMobile(accountSol: string, accountId: string, currentMobile = '') {
     const raw = window.prompt(
       'Enter borrower 10-digit mobile number for calling & WhatsApp follow-up:',
@@ -1334,6 +1363,7 @@ export default function SmaPortal() {
           </div>
 
           {/* CHRONOLOGICAL REGIONAL LIVE ACTIVITY FEED */}
+          {!isBranch && (
           <div
             className="no-print"
             style={{
@@ -1545,6 +1575,7 @@ export default function SmaPortal() {
               )}
             </div>
           </div>
+          )}
 
           {error && (
             <div className="alert error" role="alert">
@@ -2246,143 +2277,179 @@ export default function SmaPortal() {
                                   </div>
                                 </div>
 
-                                {/* CIF Totals */}
-                                <div style={{ textAlign: 'right' }}>
+                                {/* CIF Totals and 1-Click Mark Paid Button */}
+                                <div style={{ textAlign: 'right', display: 'flex', flexDirection: 'column', alignItems: 'flex-end', gap: 4 }}>
                                   <div style={{ fontSize: 11, color: '#64748b', fontWeight: 600 }}>Total Repayment Due</div>
                                   <b style={{ fontSize: 18, color: isTodayPending ? '#dc2626' : '#0f172a' }}>
                                     ₹{fmt(grp.totalDue)}
                                   </b>
                                   {hasAnyExplicitBalance && grp.totalBalance > 0 && (
-                                    <small style={{ display: 'block', color: '#64748b', marginTop: 2 }}>
+                                    <small style={{ color: '#64748b' }}>
                                       Outstanding Bal: ₹{fmt(grp.totalBalance)}
                                     </small>
+                                  )}
+                                  {(isBranch || isAdmin) && (
+                                    <button
+                                      type="button"
+                                      className={grp.accounts.every((a: any) => a.completed) ? 'secondary' : ''}
+                                      disabled={busy}
+                                      onClick={() => toggleCifGroup(grp.accounts)}
+                                      style={{
+                                        marginTop: 6,
+                                        fontSize: 12,
+                                        fontWeight: 700,
+                                        padding: '6px 12px',
+                                        borderRadius: 8,
+                                        background: grp.accounts.every((a: any) => a.completed) ? undefined : '#dc2626',
+                                        borderColor: grp.accounts.every((a: any) => a.completed) ? undefined : '#b91c1c',
+                                        color: grp.accounts.every((a: any) => a.completed) ? undefined : '#fff',
+                                        display: 'inline-flex',
+                                        alignItems: 'center',
+                                        gap: 6,
+                                        cursor: 'pointer',
+                                      }}
+                                    >
+                                      {grp.accounts.every((a: any) => a.completed)
+                                        ? '✓ CIF Paid · Undo'
+                                        : `★ Mark Paid Today${grp.accounts.length > 1 ? ` (${grp.accounts.filter((a: any) => !a.completed).length} A/Cs)` : ''}`}
+                                    </button>
                                   )}
                                 </div>
                               </div>
 
-                              {/* Sub-table of accounts under this CIF */}
-                              <div className="tablewrap" style={{ overflowX: 'auto' }}>
-                                <table style={{ margin: 0, width: '100%', background: '#fff' }}>
-                                  <thead>
-                                    <tr style={{ background: '#f8fafc', borderBottom: '1px solid #e2e8f0' }}>
-                                      {hasAnyExplicitAccountNo && <th style={{ padding: '8px 14px' }}>ACCOUNT NUMBER</th>}
-                                      <th style={{ padding: '8px 14px' }}>REPAYMENT DUE</th>
-                                      {hasAnyExplicitBalance && <th style={{ padding: '8px 14px' }}>OUTSTANDING BALANCE</th>}
-                                      <th style={{ padding: '8px 14px' }}>DUE DATE & PERIOD</th>
-                                      <th style={{ padding: '8px 14px' }}>STATUS</th>
-                                      <th style={{ padding: '8px 14px' }}>ACTIONS</th>
-                                    </tr>
-                                  </thead>
-                                  <tbody>
-                                    {grp.accounts.map((r: any) => {
-                                      const isDueToday = r.due_date === date;
-                                      const isPast = r.due_date < date;
-                                      return (
-                                        <tr
-                                          key={r.id}
-                                          style={{
-                                            background: isDueToday ? (r.completed ? '#f0fdf4' : '#fff1f2') : (r.completed ? '#f0fdf4' : '#fff'),
-                                            borderBottom: '1px solid #f1f5f9',
-                                          }}
-                                        >
-                                          {hasAnyExplicitAccountNo && (
-                                            <td data-label="Account Number" style={{ padding: '10px 14px' }}>
-                                              <span
-                                                style={{
-                                                  fontFamily: 'monospace',
-                                                  fontWeight: 700,
-                                                  fontSize: 13,
-                                                  color: '#1e293b',
-                                                  background: '#f8fafc',
-                                                  padding: '2px 6px',
-                                                  borderRadius: 4,
-                                                  border: '1px solid #e2e8f0',
-                                                }}
-                                              >
-                                                {r.account_no}
-                                              </span>
-                                            </td>
-                                          )}
-                                          <td data-label="Repayment Due" style={{ padding: '10px 14px' }}>
-                                            <b style={{ color: r.completed ? '#059669' : isDueToday ? '#dc2626' : '#b91c1c', fontSize: 14 }}>
-                                              ₹{fmt(r.due_amount)}
-                                            </b>
-                                            <small style={{ display: 'block', color: '#64748b' }}>
-                                              {r.completed ? 'Cleared in CBS' : isDueToday ? '★ Due Today' : 'Scheduled'}
-                                            </small>
-                                          </td>
-                                          {hasAnyExplicitBalance && (
-                                            <td data-label="Outstanding Balance" style={{ padding: '10px 14px' }}>
-                                              <b style={{ color: '#1e293b', fontSize: 13 }}>₹{fmt(r.balance || 0)}</b>
-                                            </td>
-                                          )}
-                                          <td data-label="Due Date" style={{ padding: '10px 14px' }}>
-                                            <b style={{ color: isDueToday ? '#b91c1c' : '#1e293b' }}>{r.due_date}</b>
-                                            <small
+                              {/* Responsive Account Cards - ZERO horizontal scroll on any mobile device */}
+                              <div style={{ display: 'flex', flexDirection: 'column', gap: 10, marginTop: 14 }}>
+                                {grp.accounts.map((r: any) => {
+                                  const isDueToday = r.due_date === date;
+                                  const isPast = r.due_date < date;
+                                  return (
+                                    <div
+                                      key={r.id}
+                                      style={{
+                                        background: r.completed ? '#f0fdf4' : isDueToday ? '#fff1f2' : '#ffffff',
+                                        border: `1px solid ${r.completed ? '#86efac' : isDueToday ? '#fca5a5' : '#e2e8f0'}`,
+                                        borderRadius: 10,
+                                        padding: '12px 14px',
+                                        display: 'flex',
+                                        flexDirection: 'column',
+                                        gap: 10,
+                                        boxShadow: '0 1px 3px rgba(0,0,0,0.03)',
+                                      }}
+                                    >
+                                      {/* Row 1: Account Number & Due Date Badge */}
+                                      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', flexWrap: 'wrap', gap: 8 }}>
+                                        <div style={{ display: 'flex', alignItems: 'center', gap: 8, flexWrap: 'wrap' }}>
+                                          {r.account_no && (
+                                            <span
                                               style={{
-                                                display: 'block',
-                                                color: isDueToday ? '#dc2626' : isPast ? '#991b1b' : '#0369a1',
-                                                fontWeight: isDueToday ? 700 : 600,
+                                                fontFamily: 'monospace',
+                                                fontWeight: 800,
+                                                fontSize: 13,
+                                                color: '#0f172a',
+                                                background: '#f8fafc',
+                                                padding: '3px 8px',
+                                                borderRadius: 6,
+                                                border: '1px solid #cbd5e1',
+                                                letterSpacing: '0.5px',
                                               }}
                                             >
-                                              {dueLabel(r.due_date)}
-                                            </small>
-                                          </td>
-                                          <td data-label="Status" style={{ padding: '10px 14px' }}>
-                                            <span className={'badge ' + (r.completed ? 'reviewed' : isDueToday ? 'clarification' : 'pending')}>
-                                              {r.completed ? 'Completed' : 'Pending'}
+                                              {r.account_no}
                                             </span>
-                                            {r.completed && r.completedBy && (
-                                              <small style={{ display: 'block', marginTop: 2, fontSize: 10 }}>
-                                                By: {r.completedBy}{r.roll_no ? ` (${r.roll_no})` : ''}
-                                              </small>
-                                            )}
-                                          </td>
-                                          <td data-label="Actions" style={{ padding: '10px 14px' }}>
-                                            <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap', alignItems: 'center' }}>
-                                              {(isBranch || isAdmin) && (
-                                                <button
-                                                  type="button"
-                                                  className={r.completed ? 'secondary' : ''}
-                                                  disabled={busy}
-                                                  onClick={() => toggleRepaymentStatus(r.sol, r.id, r.completed, r.roll_no)}
-                                                  style={{
-                                                    fontSize: 11,
-                                                    padding: '5px 10px',
-                                                    background: r.completed ? undefined : isDueToday ? '#dc2626' : undefined,
-                                                    borderColor: r.completed ? undefined : isDueToday ? '#b91c1c' : undefined,
-                                                  }}
-                                                >
-                                                  {r.completed ? 'Completed · Undo' : isDueToday ? '★ Mark Paid Today' : 'Mark Complete'}
-                                                </button>
-                                              )}
-                                              <a
-                                                className="secondary button"
-                                                href={`https://wa.me/${grp.mobile ? (grp.mobile.startsWith('91') ? grp.mobile : '91' + grp.mobile) : ''}?text=${encodeURIComponent(
-                                                  `Indian Overseas Bank ${data.branches.find((b: any) => b.sol === r.sol)?.name || currentBranch?.name || ''} Branch: Dear ${r.account_name}, your loan installment of ₹${fmt(
-                                                    r.due_amount
-                                                  )} is due for repayment ${isDueToday ? 'TODAY (' + date + ')' : 'on ' + r.due_date}. Please ensure payment today to keep your account regular and prevent SMA classification.`
-                                                )}`}
-                                                target="_blank"
-                                                rel="noopener noreferrer"
-                                                style={{
-                                                  display: 'inline-flex',
-                                                  alignItems: 'center',
-                                                  gap: 4,
-                                                  fontSize: 11,
-                                                  padding: '5px 8px',
-                                                  textDecoration: 'none',
-                                                }}
-                                              >
-                                                <MessageSquare size={12} color="#25D366" /> WhatsApp
-                                              </a>
-                                            </div>
-                                          </td>
-                                        </tr>
-                                      );
-                                    })}
-                                  </tbody>
-                                </table>
+                                          )}
+                                          <span
+                                            style={{
+                                              fontSize: 11,
+                                              fontWeight: 700,
+                                              padding: '2px 8px',
+                                              borderRadius: 6,
+                                              background: isDueToday ? '#fee2e2' : isPast ? '#fef2f2' : '#e0f2fe',
+                                              color: isDueToday ? '#b91c1c' : isPast ? '#991b1b' : '#0369a1',
+                                            }}
+                                          >
+                                            {isDueToday ? '★ Due Today (' + r.due_date + ')' : r.due_date + ' · ' + dueLabel(r.due_date)}
+                                          </span>
+                                          <span className={'badge ' + (r.completed ? 'reviewed' : isDueToday ? 'clarification' : 'pending')} style={{ fontSize: 10, padding: '2px 6px' }}>
+                                            {r.completed ? 'Completed' : 'Pending'}
+                                          </span>
+                                        </div>
+                                        {r.completed && r.completedBy && (
+                                          <small style={{ fontSize: 11, color: '#166534', fontWeight: 600 }}>
+                                            ✓ By {r.completedBy}{r.roll_no ? ` (${r.roll_no})` : ''}
+                                          </small>
+                                        )}
+                                      </div>
+
+                                      {/* Row 2: Repayment Due Amount & Balance */}
+                                      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'baseline', flexWrap: 'wrap', gap: 6, borderTop: '1px dashed #e2e8f0', paddingTop: 8 }}>
+                                        <div>
+                                          <span style={{ fontSize: 11, color: '#64748b', fontWeight: 600 }}>Repayment Due: </span>
+                                          <b style={{ color: r.completed ? '#059669' : isDueToday ? '#dc2626' : '#b91c1c', fontSize: 16 }}>
+                                            ₹{fmt(r.due_amount)}
+                                          </b>
+                                          <span style={{ fontSize: 11, color: '#64748b', marginLeft: 6 }}>
+                                            ({r.completed ? 'Cleared in CBS' : isDueToday ? 'Critical' : 'Scheduled'})
+                                          </span>
+                                        </div>
+                                        {r.balance != null && (
+                                          <div style={{ fontSize: 12, color: '#475569' }}>
+                                            <span>Outstanding Bal: </span>
+                                            <b style={{ color: '#0f172a' }}>₹{fmt(r.balance)}</b>
+                                          </div>
+                                        )}
+                                      </div>
+
+                                      {/* Row 3: Action Buttons (Mark Paid Today + WhatsApp) - 100% visible on any screen! */}
+                                      <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap', alignItems: 'center', justifyContent: 'flex-end', paddingTop: 4 }}>
+                                        {(isBranch || isAdmin) && (
+                                          <button
+                                            type="button"
+                                            className={r.completed ? 'secondary' : ''}
+                                            disabled={busy}
+                                            onClick={() => toggleRepaymentStatus(r.sol, r.id, r.completed, r.roll_no)}
+                                            style={{
+                                              fontSize: 12,
+                                              fontWeight: 700,
+                                              padding: '7px 14px',
+                                              borderRadius: 8,
+                                              background: r.completed ? undefined : isDueToday ? '#dc2626' : undefined,
+                                              borderColor: r.completed ? undefined : isDueToday ? '#b91c1c' : undefined,
+                                              color: r.completed ? undefined : isDueToday ? '#fff' : undefined,
+                                              cursor: 'pointer',
+                                            }}
+                                          >
+                                            {r.completed ? '✓ Completed · Undo' : isDueToday ? '★ Mark Paid Today' : 'Mark Complete'}
+                                          </button>
+                                        )}
+                                        <a
+                                          className="secondary button"
+                                          href={`https://wa.me/${grp.mobile ? (grp.mobile.startsWith('91') ? grp.mobile : '91' + grp.mobile) : ''}?text=${encodeURIComponent(
+                                            `Indian Overseas Bank ${data.branches.find((b: any) => b.sol === r.sol)?.name || currentBranch?.name || ''} Branch: Dear ${r.account_name}, your loan installment of ₹${fmt(
+                                              r.due_amount
+                                            )} is due for repayment ${isDueToday ? 'TODAY (' + date + ')' : 'on ' + r.due_date}. Please ensure payment today to keep your account regular and prevent SMA classification.`
+                                          )}`}
+                                          target="_blank"
+                                          rel="noopener noreferrer"
+                                          style={{
+                                            display: 'inline-flex',
+                                            alignItems: 'center',
+                                            gap: 4,
+                                            fontSize: 11,
+                                            fontWeight: 600,
+                                            padding: '7px 12px',
+                                            borderRadius: 8,
+                                            textDecoration: 'none',
+                                            background: '#25D366',
+                                            color: '#fff',
+                                            border: '1px solid #1ebb59',
+                                          }}
+                                        >
+                                          <Send size={13} />
+                                          <span>WhatsApp Follow-up</span>
+                                        </a>
+                                      </div>
+                                    </div>
+                                  );
+                                })}
                               </div>
                             </div>
                           );

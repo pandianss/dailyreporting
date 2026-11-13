@@ -646,6 +646,7 @@ export default function FundingPortal() {
           </div>
 
           {/* CHRONOLOGICAL REGIONAL LIVE ACTIVITY FEED */}
+          {!isBranch && (
           <div
             className="no-print"
             style={{
@@ -857,6 +858,7 @@ export default function FundingPortal() {
               )}
             </div>
           </div>
+          )}
 
           {error && <div className="alert error" role="alert">{error}</div>}
           {notice && <div className="alert success" role="status">{notice}</div>}
