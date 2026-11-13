@@ -1,4 +1,4 @@
-import { existsSync, renameSync, rmSync } from 'node:fs';
+import { existsSync, renameSync, rmSync, cpSync, copyFileSync } from 'node:fs';
 import { spawnSync } from 'node:child_process';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
@@ -40,6 +40,17 @@ try {
 
 if (exitCode !== 0) {
   process.exit(exitCode);
+}
+
+const outDir = path.join(root, 'out');
+const outSmaDir = path.join(root, 'out-sma');
+if (existsSync(outDir)) {
+  rmSync(outSmaDir, { recursive: true, force: true });
+  cpSync(outDir, outSmaDir, { recursive: true });
+  const smaIndex = path.join(outDir, 'sma', 'index.html');
+  if (existsSync(smaIndex)) {
+    copyFileSync(smaIndex, path.join(outSmaDir, 'index.html'));
+  }
 }
 
 if (!hostingOnly) {

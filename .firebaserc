@@ -1,5 +1,18 @@
 {
   "projects": {
     "default": "dailyreport-9265a"
-  }
+  },
+  "targets": {
+    "dailyreport-9265a": {
+      "hosting": {
+        "main": [
+          "dailyreport-9265a"
+        ],
+        "sma": [
+          "dailyreport-sma-9265a"
+        ]
+      }
+    }
+  },
+  "etags": {}
 }

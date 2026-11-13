@@ -38,6 +38,12 @@ export interface ModelHelpers {
   cutoffs: (date: string) => { yesterday: string; prior: string; first: boolean; april: boolean };
   validateSnapshot: (rows: any[], branches: Branch[], campaigns: any[], date: string) => any[];
   validateEntry: (input: any, snapshot: any, campaigns: any[], date: string) => any;
+  validateRepayments: (rows: any[], branches: Branch[]) => any[];
+  repaymentsDueInNextDays: (repayments: any[], date: string, days?: number) => any[];
+  validateDirectory: (rows: any[], branches: Branch[], adminMobile?: string) => any[];
+  validateSMAAccounts: (rows: any[], branches: Branch[]) => any[];
+  normalizeDate: (v: any, label?: string) => string;
+  number: (v: any, label: string, integer?: boolean, signed?: boolean) => number;
 }
 
 export class HttpError extends Error {
@@ -148,7 +154,8 @@ export async function authenticateRequest(store: Store, config: PortalConfig, co
   }
   return {
     user: {
-      email: account.email as string,
+      name: (account.name || '') as string,
+      email: (account.email || '') as string,
       phone: account.phone as string,
       role: account.role as Role,
       sol: (account.sol ?? null) as string | null,
@@ -187,6 +194,32 @@ export async function handleAuthPost(
         status: 200,
         body: { ok: true },
         setCookie: formatSessionCookie('', secure, 0),
+      };
+    }
+
+    if (b.action === 'handoff-login') {
+      const token = String(b.token || '').trim();
+      if (!token) throw new Error('Handoff token required');
+      const record = await store.get('handoff:' + token);
+      if (!record || !record.phone || record.expires < Date.now()) {
+        throw new Error('Handoff link expired or invalid. Please sign in with your PIN');
+      }
+      await store.del('handoff:' + token);
+      const phone = record.phone;
+      const account = await getAccountFor(store, phone);
+      if (account.role === 'none') {
+        throw new Error('Access revoked');
+      }
+      const rawToken = randomToken();
+      await store.put('session:' + sha256Hex(rawToken), {
+        phone,
+        version: account.version,
+        expires: Date.now() + SESSION_TTL_MS,
+      });
+      return {
+        status: 200,
+        body: { ok: true },
+        setCookie: formatSessionCookie(rawToken, secure),
       };
     }
 
@@ -354,6 +387,15 @@ export async function handlePortalGet(
     }
 
     const campaigns = await store.list('campaign:');
+    const rawRepayments =
+      auth.user.role === 'branch'
+        ? await store.list('repay:' + auth.user.sol + ':')
+        : await store.list('repay:');
+    const repayments = model.repaymentsDueInNextDays(rawRepayments, date, 3);
+    const rawSma =
+      auth.user.role === 'branch'
+        ? await store.list('sma:' + auth.user.sol + ':')
+        : await store.list('sma:');
     const contacts = auth.user.role === 'admin' ? await store.list('contact:') : [];
     const grants =
       auth.user.role === 'admin'
@@ -373,6 +415,8 @@ export async function handlePortalGet(
         subs,
         reviews,
         campaigns,
+        repayments,
+        smaAccounts: rawSma,
         contacts,
         grants,
         jobs,
@@ -425,24 +469,33 @@ export async function handlePortalPost(
       if (phone === adminMobile) {
         throw new Error('The administrator account is reserved');
       }
+      const rawEmail = String(body.email || '').trim().toLowerCase();
+      const rawName = String(body.name || '').trim().slice(0, 100);
       if (
-        !/^[^@\s]+@[^@\s]+\.[^@\s]+$/.test(body.email) ||
+        (rawEmail && !/^[^@\s]+@[^@\s]+\.[^@\s]+$/.test(rawEmail)) ||
         !['branch', 'reviewer', 'srm', 'none'].includes(body.role)
       ) {
-        throw new Error('Valid email and role required');
+        throw new Error('Valid role (and valid email if provided) required');
       }
       if (body.role === 'branch' && !branches.find((b) => b.sol === body.sol)) {
         throw new Error('Select a branch');
       }
-      const email = String(body.email).toLowerCase();
       const old = await store.get('account:' + phone);
       await store.put('account:' + phone, {
         phone,
-        email,
+        name: rawName || old?.name || '',
+        email: rawEmail,
         role: body.role,
-        sol: body.role === 'branch' ? body.sol : null,
+        sol:
+          body.role === 'branch'
+            ? body.sol
+            : body.role === 'reviewer' || body.role === 'srm'
+              ? '3933'
+              : null,
         version: (old?.version || 0) + 1,
-        ...(old?.email === email && old?.hash ? { hash: old.hash, salt: old.salt } : {}),
+        ...((old?.email || '') === rawEmail && old?.hash
+          ? { hash: old.hash, salt: old.salt }
+          : {}),
       });
     } else if (action === 'reset-pin') {
       requireAdmin();
@@ -596,12 +649,235 @@ export async function handlePortalPost(
         },
       ]);
       await sendOutboxJob(store, config, key);
+    } else if (action === 'upload-repayments') {
+      requireAdmin();
+      const validated = model.validateRepayments(body.rows, branches);
+      const existing = await store.list('repay:');
+      const existingByKey = new Map(existing.map((x: any) => [x.key, x]));
+      const nextKeys = new Set(validated.map((r: any) => 'repay:' + r.sol + ':' + r.id));
+      const ops: Array<{ type: 'put'; key: string; value: any } | { type: 'del'; key: string }> = [];
+      for (const old of existing) {
+        if (!nextKeys.has(old.key)) {
+          ops.push({ type: 'del', key: old.key });
+        }
+      }
+      for (const row of validated) {
+        const key = 'repay:' + row.sol + ':' + row.id;
+        const prev = existingByKey.get(key);
+        ops.push({
+          type: 'put',
+          key,
+          value: {
+            ...row,
+            completed: Boolean(prev?.completed),
+            completedAt: prev?.completed ? prev.completedAt : null,
+            completedBy: prev?.completed ? prev.completedBy : null,
+            uploadedAt: now,
+            uploadedBy: auth.user.email,
+          },
+        });
+      }
+      for (let i = 0; i < ops.length; i += 200) {
+        await store.batch(ops.slice(i, i + 200));
+      }
+    } else if (action === 'repayment-status') {
+      if (auth.user.role === 'reviewer' || auth.user.role === 'srm') {
+        throw new Error('Only branch heads or administrator can update repayment status');
+      }
+      const sol = auth.user.role === 'branch' ? auth.user.sol : body.sol;
+      if (!branches.find((b) => b.sol === sol) || !String(body.id || '').trim()) {
+        throw new Error('Valid branch and repayment account required');
+      }
+      const key = 'repay:' + sol + ':' + String(body.id).trim();
+      const current = await store.get(key);
+      if (!current) {
+        throw new Error('Repayment account not found');
+      }
+      const completed = Boolean(body.completed);
+      const actor = auth.user.name || auth.user.email || auth.user.phone.slice(2);
+      await store.put(key, {
+        ...current,
+        completed,
+        completedAt: completed ? now : null,
+        completedBy: completed ? actor : null,
+      });
+    } else if (action === 'upload-directory') {
+      requireAdmin();
+      const validated = model.validateDirectory(body.rows, branches, adminMobile);
+      const existingAccounts = await store.list('account:');
+      const byPhone = new Map(existingAccounts.map((a: any) => [a.phone, a]));
+      const ops: Array<{ type: 'put'; key: string; value: any }> = [];
+      for (const entry of validated) {
+        if (entry.sol && entry.sol !== '3933' && entry.name && entry.role !== 'none') {
+          ops.push({
+            type: 'put',
+            key: 'contact:' + entry.sol,
+            value: { sol: entry.sol, name: entry.name, phone: entry.phone },
+          });
+        }
+        const old = byPhone.get(entry.phone);
+        const nextEmail = entry.email || '';
+        ops.push({
+          type: 'put',
+          key: 'account:' + entry.phone,
+          value: {
+            phone: entry.phone,
+            name: entry.name || old?.name || '',
+            email: nextEmail,
+            role: entry.role,
+            sol:
+              entry.role === 'branch'
+                ? entry.sol
+                : entry.role === 'reviewer' || entry.role === 'srm'
+                  ? entry.sol || '3933'
+                  : null,
+            version: (old?.version || 0) + 1,
+            ...((old?.email || '') === nextEmail && old?.hash
+              ? { hash: old.hash, salt: old.salt }
+              : {}),
+          },
+        });
+      }
+      for (let i = 0; i < ops.length; i += 200) {
+        await store.batch(ops.slice(i, i + 200));
+      }
     } else if (action === 'retry') {
       requireAdmin();
       if (!String(body.key || '').startsWith('out:')) {
         throw new Error('Invalid job');
       }
       await sendOutboxJob(store, config, body.key);
+    } else if (action === 'handoff') {
+      const token = randomToken();
+      await store.put('handoff:' + token, {
+        phone: auth.user.phone,
+        expires: Date.now() + 60_000,
+      });
+      return { status: 200, body: { ok: true, token } };
+    } else if (action === 'upload-sma') {
+      requireAdmin();
+      const validated = model.validateSMAAccounts(body.rows, branches);
+      const existing = await store.list('sma:');
+      const existingByKey = new Map(existing.map((x: any) => [x.key, x]));
+      const nextKeys = new Set(validated.map((r: any) => 'sma:' + r.sol + ':' + r.id));
+      const ops: Array<{ type: 'put'; key: string; value: any } | { type: 'del'; key: string }> = [];
+      for (const old of existing) {
+        if (!nextKeys.has(old.key)) {
+          ops.push({ type: 'del', key: old.key });
+        }
+      }
+      for (const row of validated) {
+        const key = 'sma:' + row.sol + ':' + row.id;
+        const prev = existingByKey.get(key);
+        ops.push({
+          type: 'put',
+          key,
+          value: {
+            ...row,
+            status: prev?.status || row.status || 'pending',
+            remarks: prev?.remarks || row.remarks || '',
+            promise_date: prev?.promise_date || row.promise_date || null,
+            updatedAt: prev?.updatedAt || now,
+            updatedBy: prev?.updatedBy || auth.user.email,
+          },
+        });
+      }
+      for (let i = 0; i < ops.length; i += 200) {
+        await store.batch(ops.slice(i, i + 200));
+      }
+    } else if (action === 'sma-status') {
+      const sol = auth.user.role === 'branch' ? auth.user.sol : body.sol;
+      if (!branches.find((b) => b.sol === sol) || !String(body.id || '').trim()) {
+        throw new Error('Valid branch and SMA account required');
+      }
+      const key = 'sma:' + sol + ':' + String(body.id).trim();
+      const current = await store.get(key);
+      if (!current) {
+        throw new Error('SMA account not found');
+      }
+      const status = String(body.status || current.status || 'pending').toLowerCase();
+      if (!['pending', 'contacted', 'promised', 'resolved'].includes(status)) {
+        throw new Error('Invalid SMA follow-up status');
+      }
+      const promise_date = body.promise_date ? model.normalizeDate(body.promise_date, 'Promise date') : null;
+      const remarks = String(body.remarks !== undefined ? body.remarks : (current.remarks || '')).slice(0, 500);
+      const actor = auth.user.name || auth.user.email || auth.user.phone.slice(2);
+      await store.put(key, {
+        ...current,
+        status,
+        promise_date,
+        remarks,
+        updatedAt: now,
+        updatedBy: actor,
+      });
+    } else if (action === 'sma-entry') {
+      model.cutoffs(date);
+      const sol = auth.user.role === 'branch' ? auth.user.sol : body.sol;
+      if (!branches.find((b) => b.sol === sol)) {
+        throw new Error('Select a branch');
+      }
+      if (auth.user.role === 'reviewer' || auth.user.role === 'srm') {
+        throw new Error('Reviewers and SRM cannot submit branch performance');
+      }
+      const pub = await store.get('pub:' + date);
+      if (!pub) {
+        throw new Error('Admin must publish this date first');
+      }
+      const snap = pub.rows.find((b: any) => b.sol === sol);
+      if (!snap) throw new Error('Branch snapshot not found');
+
+      const oldSub = await store.get('sub:' + date + ':' + sol);
+      const prevVals = oldSub?.values || {};
+
+      const smaValues: any = {};
+      for (const b of ['sma0', 'sma1', 'sma2']) {
+        smaValues[b + '_count'] = model.number(body[b + '_count'] ?? prevVals[b + '_count'] ?? 0, b + ' eliminated count', true);
+        smaValues[b + '_amount'] = model.number(body[b + '_amount'] ?? prevVals[b + '_amount'] ?? 0, b + ' eliminated amount');
+        if (smaValues[b + '_count'] === 0 && smaValues[b + '_amount'] !== 0) {
+          throw new Error(b + ': amount requires an eliminated account');
+        }
+        if (smaValues[b + '_count'] > snap[b + '_yesterday_count'] && !(body.notes || prevVals.notes)?.trim()) {
+          throw new Error('Explain SMA eliminations exceeding yesterday’s count in notes');
+        }
+      }
+
+      const notes = String(body.notes !== undefined ? body.notes : (prevVals.notes || '')).slice(0, 2000);
+
+      const mergedValues = {
+        sb_opened: prevVals.sb_opened || 0,
+        sb_funded: prevVals.sb_funded || 0,
+        cd_opened: prevVals.cd_opened || 0,
+        cd_funded: prevVals.cd_funded || 0,
+        sanction_retail_count: prevVals.sanction_retail_count || 0,
+        sanction_retail_amount: prevVals.sanction_retail_amount || 0,
+        sanction_agri_count: prevVals.sanction_agri_count || 0,
+        sanction_agri_amount: prevVals.sanction_agri_amount || 0,
+        sanction_msme_count: prevVals.sanction_msme_count || 0,
+        sanction_msme_amount: prevVals.sanction_msme_amount || 0,
+        plans: prevVals.plans || {},
+        ...prevVals,
+        ...smaValues,
+        notes,
+      };
+
+      const sub = {
+        date,
+        sol,
+        values: mergedValues,
+        revision: (oldSub?.revision || 0) + 1,
+        snapshotVersion: pub.version,
+        by: auth.user.email,
+        at: now,
+      };
+
+      await store.batch([
+        { type: 'put', key: 'sub:' + date + ':' + sol, value: sub },
+        {
+          type: 'put',
+          key: 'submission-history:' + date + ':' + sol + ':' + sub.revision,
+          value: sub,
+        },
+      ]);
     } else {
       throw new Error('Unknown action');
     }

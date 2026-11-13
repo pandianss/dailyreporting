@@ -1,4 +1,77 @@
 'use client';
-import {useState} from 'react';
+import {useState,useEffect} from 'react';
 import {ArrowRight,ShieldCheck,LockKeyhole,Phone} from 'lucide-react';
-export default function Login({onSuccess}:{onSuccess:()=>void}){const [phone,setPhone]=useState(''),[step,setStep]=useState('mobile'),[pin,setPin]=useState(''),[confirm,setConfirm]=useState(''),[busy,setBusy]=useState(false),[error,setError]=useState('');async function submit(e:any){e.preventDefault();setBusy(true);setError('');try{const r=await fetch('/api/auth',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({action:step==='mobile'?'lookup':step,phone,pin,confirm})});const j:any=await r.json();if(!r.ok)throw Error(j.error);if(step==='mobile')setStep(j.setup?'setup':'login');else onSuccess();}catch(e:any){setError(e.message);setPin('');setConfirm('');}finally{setBusy(false);}}return <main className="loginpage"><div className="loginbrand"><img src="/logo.svg" alt="Indian Overseas Bank Logo" className="sitelogo"/><div>Indian Overseas Bank<small>DINDIGUL REGION</small></div></div><div className="loginintro"><span className="eyebrow">DAILY PERFORMANCE</span><h1>Your branch.<br/>Your daily progress.</h1><p>A focused workspace for reporting and review.</p></div><form className="logincard" onSubmit={submit}><div className="loginicon">{step==='mobile'?<Phone/>:<LockKeyhole/>}</div><h2>{step==='mobile'?'Enter your mobile number':step==='setup'?'Set your 4-digit PIN':'Welcome back'}</h2><p>{step==='mobile'?'Use the number registered by your administrator.':step==='setup'?'Choose a PIN for future logins. Keep it private.':'Enter your PIN to continue.'}</p>{error&&<div className="alert error" role="alert">{error}</div>}{step==='mobile'?<label>Mobile number<div className="phoneinput"><span>+91</span><input type="tel" inputMode="numeric" autoComplete="tel-national" maxLength={10} pattern="[6-9][0-9]{9}" required value={phone} onChange={e=>setPhone(e.target.value.replace(/\D/g,''))} placeholder="10-digit mobile number" autoFocus/></div></label>:<><div className="numberline">+91 {phone}<button type="button" className="textbutton" onClick={()=>{setStep('mobile');setPin('');setConfirm('');setError('');}}>Change</button></div><label>{step==='setup'?'New PIN':'4-digit PIN'}<input className="pininput" type="password" inputMode="numeric" autoComplete={step==='setup'?'new-password':'current-password'} maxLength={4} pattern="[0-9]{4}" required value={pin} onChange={e=>setPin(e.target.value.replace(/\D/g,''))} autoFocus/></label>{step==='setup'&&<label>Confirm PIN<input className="pininput" type="password" inputMode="numeric" autoComplete="new-password" maxLength={4} pattern="[0-9]{4}" required value={confirm} onChange={e=>setConfirm(e.target.value.replace(/\D/g,''))}/></label>}</>}<button className="logincontinue" disabled={busy}>{busy?'Please wait…':step==='mobile'?'Continue':step==='setup'?'Set PIN & enter':'Enter portal'}<ArrowRight size={18}/></button>{step==='login'&&<p className="loginhelp">Forgot your PIN? Ask the administrator to reset it.</p>}</form><div className="loginsecure"><ShieldCheck size={16}/><span>Access is restricted to registered numbers.<br/>Your role and branch open automatically.</span></div></main>}
+export default function Login({onSuccess,portalName='Daily Reporting',portalTag='DAILY PERFORMANCE'}:{onSuccess:()=>void;portalName?:string;portalTag?:string}){
+  const [phone,setPhone]=useState(''),[step,setStep]=useState('mobile'),[pin,setPin]=useState(''),[confirm,setConfirm]=useState(''),[busy,setBusy]=useState(false),[error,setError]=useState('');
+
+  useEffect(()=>{
+    if(typeof window==='undefined') return;
+    const params=new URLSearchParams(window.location.search);
+    const token=params.get('handoff');
+    if(token){
+      setBusy(true);
+      fetch('/api/auth',{
+        method:'POST',
+        headers:{'Content-Type':'application/json'},
+        body:JSON.stringify({action:'handoff-login',token})
+      }).then(async r=>{
+        const j: any = await r.json();
+        if(r.ok&&j.ok){
+          const cleanUrl=window.location.pathname+(params.get('date')?'?date='+params.get('date'):'');
+          window.history.replaceState({},'',cleanUrl);
+          onSuccess();
+        }else{
+          setError(j.error||'Handoff link expired. Please sign in with your PIN.');
+        }
+      }).catch(e=>setError(e.message)).finally(()=>setBusy(false));
+    }
+  },[onSuccess]);
+
+  async function submit(e:any){
+    e.preventDefault();
+    setBusy(true);
+    setError('');
+    try{
+      const r=await fetch('/api/auth',{
+        method:'POST',
+        headers:{'Content-Type':'application/json'},
+        body:JSON.stringify({action:step==='mobile'?'lookup':step,phone,pin,confirm})
+      });
+      const j:any=await r.json();
+      if(!r.ok)throw Error(j.error);
+      if(step==='mobile')setStep(j.setup?'setup':'login');
+      else onSuccess();
+    }catch(e:any){
+      setError(e.message);
+      setPin('');
+      setConfirm('');
+    }finally{
+      setBusy(false);
+    }
+  }
+
+  return <main className="loginpage">
+    <div className="loginbrand">
+      <img src="/logo.svg" alt="Indian Overseas Bank Logo" className="sitelogo"/>
+      <div>Indian Overseas Bank<small>DINDIGUL REGION</small></div>
+    </div>
+    <div className="loginintro">
+      <span className="eyebrow">{portalTag}</span>
+      <h1>Your branch.<br/>{portalName}.</h1>
+      <p>A focused workspace for regional follow-up and review.</p>
+    </div>
+    <form className="logincard" onSubmit={submit}>
+      <div className="loginicon">{step==='mobile'?<Phone/>:<LockKeyhole/>}</div>
+      <h2>{step==='mobile'?'Enter your mobile number':step==='setup'?'Set your 4-digit PIN':'Welcome back'}</h2>
+      <p>{step==='mobile'?'Use the number registered by your administrator.':step==='setup'?'Choose a PIN for future logins. Keep it private.':'Enter your PIN to continue.'}</p>
+      {error&&<div className="alert error" role="alert">{error}</div>}
+      {step==='mobile'?<label>Mobile number<div className="phoneinput"><span>+91</span><input type="tel" inputMode="numeric" autoComplete="tel-national" maxLength={10} pattern="[6-9][0-9]{9}" required value={phone} onChange={e=>setPhone(e.target.value.replace(/\D/g,''))} placeholder="10-digit mobile number" autoFocus/></div></label>:<><div className="numberline">+91 {phone}<button type="button" className="textbutton" onClick={()=>{setStep('mobile');setPin('');setConfirm('');setError('');}}>Change</button></div><label>{step==='setup'?'New PIN':'4-digit PIN'}<input className="pininput" type="password" inputMode="numeric" autoComplete={step==='setup'?'new-password':'current-password'} maxLength={4} pattern="[0-9]{4}" required value={pin} onChange={e=>setPin(e.target.value.replace(/\D/g,''))} autoFocus/></label>{step==='setup'&&<label>Confirm PIN<input className="pininput" type="password" inputMode="numeric" autoComplete="new-password" maxLength={4} pattern="[0-9]{4}" required value={confirm} onChange={e=>setConfirm(e.target.value.replace(/\D/g,''))}/></label>}</>}
+      <button className="logincontinue" disabled={busy}>{busy?'Please wait…':step==='mobile'?'Continue':step==='setup'?'Set PIN & enter':'Enter portal'}<ArrowRight size={18}/></button>
+      {step==='login'&&<p className="loginhelp">Forgot your PIN? Ask the administrator to reset it.</p>}
+    </form>
+    <div className="loginsecure">
+      <ShieldCheck size={16}/>
+      <span>Access is restricted to registered numbers.<br/>Your role and branch open automatically.</span>
+    </div>
+  </main>;
+}

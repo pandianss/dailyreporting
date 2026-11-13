@@ -1,0 +1,5 @@
+branch_code,cif,borrower_name,bucket,overdue_amount,dpd,phone,status,promise_date,remarks
+0332,CIF1002341,Senthil Nathan K,SMA0,185000,18,9842100111,pending,2026-11-20,Renewal proposal pending borrower signature
+0332,CIF1005892,Meenakshi Traders,SMA1,420000,45,9842100222,contacted,2026-11-18,Borrower visited branch; promised partial recovery
+0376,CIF2001452,Palanisamy Murugan,SMA2,650000,75,9842100333,promised,2026-11-15,Promised full overdue payment on Friday
+0174,CIF3004519,Lakshmi Cotton Mills,SMA1,320000,50,9842100444,pending,,Notice sent under SARFAESI follow-up

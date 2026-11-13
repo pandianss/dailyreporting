@@ -426,5 +426,108 @@ assert.equal((await authPost({ action: 'setup', phone: '9876543210', pin: '6428'
 assert.equal((await portalGet(date, 'bm0175')).body.user.sol, '0175');
 count += 7;
 
+// 13. SMA Follow-up Portal features: Bulk CSV upload, account tracking, and bidirectional sync to daily report
+const smaCSV = [
+  'branch_code,cif,borrower_name,bucket,amount,dpd,phone,status,remarks',
+  '0174,CIF_SMA0_01,Ramalingam M,SMA0,250000,15,9842100001,pending,Notice sent',
+  '0174,CIF_SMA1_01,Kavitha Textiles,SMA1,450000,42,9842100002,promised,Payment committed by Friday',
+  '0175,CIF_SMA2_01,Sakthi Traders,SMA2,800000,75,9842100003,contacted,Renewal under process',
+].join('\n');
+const parsedSMA = model.validateSMAAccounts(model.parseSMACSV(smaCSV), branches);
+assert.equal(parsedSMA.length, 3);
+assert.equal(parsedSMA[0].sol, '0174');
+assert.equal(parsedSMA[0].bucket, 'sma0');
+assert.equal(parsedSMA[0].amount, 250000);
+count += 4;
+
+// Admin uploads SMA accounts
+assert.equal((await portalPost(date, { action: 'upload-sma', rows: parsedSMA })).status, 200);
+count++;
+
+// Branch head sees only their branch's SMA accounts
+const bm0174Portal = await portalGet(date, 'branch3');
+assert.equal(bm0174Portal.body.smaAccounts.length, 2);
+assert.ok(bm0174Portal.body.smaAccounts.every((a) => a.sol === '0174'));
+// Admin / Reviewer sees all SMA accounts
+const adminSmaView = await portalGet(date, 'owner');
+assert.equal(adminSmaView.body.smaAccounts.length, 3);
+count += 3;
+
+// Branch head updates follow-up on an SMA account
+const smaItem = bm0174Portal.body.smaAccounts[0];
+assert.equal(
+  (
+    await portalPost(
+      date,
+      {
+        action: 'sma-status',
+        sol: '0174',
+        id: smaItem.id,
+        status: 'resolved',
+        remarks: 'Full overdue cleared today',
+      },
+      'branch3'
+    )
+  ).status,
+  200
+);
+const updatedBmSma = await portalGet(date, 'branch3');
+const updatedAcc = updatedBmSma.body.smaAccounts.find((a) => a.id === smaItem.id);
+assert.equal(updatedAcc.status, 'resolved');
+assert.equal(updatedAcc.remarks, 'Full overdue cleared today');
+count += 3;
+
+// Branch head saves SMA eliminations from the SMA Follow-up portal (sma-entry)
+// This MUST immediately reflect in the daily reporting portal!
+assert.equal(
+  (
+    await portalPost(
+      date,
+      {
+        action: 'sma-entry',
+        sol: '0174',
+        sma0_count: 1,
+        sma0_amount: 250000,
+        sma1_count: 0,
+        sma1_amount: 0,
+        sma2_count: 0,
+        sma2_amount: 0,
+        notes: 'SMA0 Ramalingam account closed through recovery today.',
+      },
+      'branch3'
+    )
+  ).status,
+  200
+);
+count++;
+
+// Daily reporting portal view check: the submission for 0174 now reflects the updated SMA figures!
+const reportingPortalView = await portalGet(date, 'owner');
+const sub0174 = reportingPortalView.body.subs.find((s) => s.sol === '0174');
+assert.ok(sub0174, 'Branch submission must exist');
+assert.equal(sub0174.values.sma0_count, 1);
+assert.equal(sub0174.values.sma0_amount, 250000);
+assert.equal(sub0174.values.notes, 'SMA0 Ramalingam account closed through recovery today.');
+// Previously submitted sanctions / account openings remain preserved!
+assert.equal(sub0174.values.sanction_retail_count, 2);
+assert.equal(sub0174.values.sanction_retail_amount, 500000);
+count += 6;
+
+// 14. SSO Handoff token between Daily Reporting and SMA portals
+const handoffRes = await portalPost(date, { action: 'handoff' }, 'branch3');
+assert.equal(handoffRes.status, 200);
+assert.ok(handoffRes.body.token);
+const handoffToken = handoffRes.body.token;
+count += 2;
+
+// Consume handoff on SMA portal domain to get authenticated session
+const consumeRes = await authPost({ action: 'handoff-login', token: handoffToken }, 'smaSession');
+assert.equal(consumeRes.status, 200);
+assert.ok(consumeRes.setCookie);
+assert.ok(cookies['smaSession']);
+// Token is single-use: consuming again must fail
+assert.equal((await authPost({ action: 'handoff-login', token: handoffToken }, 'badSession')).status, 400);
+count += 3;
+
 await unlink('tests/.portal-core.mjs');
 console.log(count + ' Firebase portal checks passed: __session cookie, Mobile+PIN auth, admin bootstrap, Firestore store contract, rate-limit lockout, reset, sanctions, SRM direction, and revocation.');

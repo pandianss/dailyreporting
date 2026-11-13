@@ -3,30 +3,55 @@
     "rules": "firestore.rules",
     "indexes": "firestore.indexes.json"
   },
-  "hosting": {
-    "public": "out",
-    "ignore": [
-      "firebase.json",
-      "**/.*",
-      "**/node_modules/**"
-    ],
-    "predeploy": [
-      "node scripts/build-firebase.mjs --hosting-only"
-    ],
-    "rewrites": [
-      {
-        "source": "/api/**",
-        "function": {
-          "functionId": "api",
-          "region": "asia-south1"
+  "hosting": [
+    {
+      "target": "main",
+      "public": "out",
+      "ignore": [
+        "firebase.json",
+        "**/.*",
+        "**/node_modules/**"
+      ],
+      "predeploy": [
+        "node scripts/build-firebase.mjs --hosting-only"
+      ],
+      "rewrites": [
+        {
+          "source": "/api/**",
+          "function": {
+            "functionId": "api",
+            "region": "asia-south1"
+          }
+        },
+        {
+          "source": "**",
+          "destination": "/index.html"
         }
-      },
-      {
-        "source": "**",
-        "destination": "/index.html"
-      }
-    ]
-  },
+      ]
+    },
+    {
+      "target": "sma",
+      "public": "out-sma",
+      "ignore": [
+        "firebase.json",
+        "**/.*",
+        "**/node_modules/**"
+      ],
+      "rewrites": [
+        {
+          "source": "/api/**",
+          "function": {
+            "functionId": "api",
+            "region": "asia-south1"
+          }
+        },
+        {
+          "source": "**",
+          "destination": "/index.html"
+        }
+      ]
+    }
+  ],
   "functions": [
     {
       "source": "functions",
