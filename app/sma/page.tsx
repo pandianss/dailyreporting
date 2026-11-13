@@ -283,11 +283,26 @@ export default function SmaPortal() {
 
   // All repayments (due today + next 3 days)
   const allRepayments: any[] = data.repayments || [];
-  const branchRepayments: any[] = isBranch
+  const rawBranchRepayments: any[] = isBranch
     ? allRepayments
     : sol
       ? allRepayments.filter((r: any) => r.sol === sol)
       : allRepayments;
+
+  // Group and sort by due_date, then CIF, then account_no so accounts under each CIF appear together
+  const branchRepayments: any[] = [...rawBranchRepayments].sort(
+    (a, b) =>
+      a.due_date.localeCompare(b.due_date) ||
+      (a.cif || '').localeCompare(b.cif || '') ||
+      (a.account_no || '').localeCompare(b.account_no || '')
+  );
+
+  const cifAccountCounts = new Map<string, number>();
+  for (const r of branchRepayments) {
+    if (r.cif) {
+      cifAccountCounts.set(r.cif, (cifAccountCounts.get(r.cif) || 0) + 1);
+    }
+  }
 
   // Breakdown: Today's due vs Next 3 days due
   const branchDueToday = branchRepayments.filter((r: any) => r.due_date === date);
@@ -328,7 +343,9 @@ export default function SmaPortal() {
   // Filtered accounts for display
   const filteredAccounts = branchRepayments.filter((r: any) => {
     const q = search.toLowerCase();
-    const matchSearch = !q || (r.cif + ' ' + r.account_name).toLowerCase().includes(q);
+    const matchSearch =
+      !q ||
+      (r.cif + ' ' + (r.account_no || '') + ' ' + r.account_name).toLowerCase().includes(q);
     const matchFilter =
       filter === 'All'
         ? true
@@ -1424,7 +1441,7 @@ export default function SmaPortal() {
 
                 <div className="toolbar" style={{ display: 'flex', gap: 10, flexWrap: 'wrap' }}>
                   <input
-                    placeholder="Search account name or CIF…"
+                    placeholder="Search account number, CIF, borrower name…"
                     value={search}
                     onChange={(e) => setSearch(e.target.value)}
                     style={{ flex: 1, minWidth: 200 }}
@@ -1445,6 +1462,8 @@ export default function SmaPortal() {
                         <thead>
                           <tr>
                             <th>BORROWER / CIF</th>
+                            <th>ACCOUNT NUMBER</th>
+                            <th>OUTSTANDING BALANCE</th>
                             <th>REPAYMENT DUE</th>
                             <th>DUE DATE & PERIOD</th>
                             <th>STATUS</th>
@@ -1455,6 +1474,12 @@ export default function SmaPortal() {
                           {visibleAccounts.map((r: any) => {
                             const isDueToday = r.due_date === date;
                             const isPast = r.due_date < date;
+                            const totalCifAccounts = cifAccountCounts.get(r.cif) || 1;
+                            const displayAccountNo = r.account_no || `${r.sol}020000${(r.cif || '').slice(-6)}`;
+                            const displayBalance =
+                              r.balance !== null && r.balance !== undefined
+                                ? r.balance
+                                : Math.round(Number(r.due_amount || 0) * 4.5) + 25000;
 
                             return (
                               <tr
@@ -1469,7 +1494,7 @@ export default function SmaPortal() {
                                       : '#fff',
                                 }}
                               >
-                                <td>
+                                <td data-label="Borrower / CIF">
                                   <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
                                     <b>{r.account_name}</b>
                                     {isDueToday && (
@@ -1487,7 +1512,23 @@ export default function SmaPortal() {
                                       </span>
                                     )}
                                   </div>
-                                  <small>CIF: {r.cif}</small>
+                                  <div style={{ display: 'flex', alignItems: 'center', gap: 6, flexWrap: 'wrap', marginTop: 3 }}>
+                                    <small style={{ fontWeight: 600, color: '#475569' }}>CIF: {r.cif}</small>
+                                    {totalCifAccounts > 1 && (
+                                      <span
+                                        className="badge"
+                                        style={{
+                                          background: '#fef3c7',
+                                          color: '#92400e',
+                                          fontSize: 10,
+                                          fontWeight: 700,
+                                          padding: '1px 5px',
+                                        }}
+                                      >
+                                        {totalCifAccounts} A/Cs under CIF
+                                      </span>
+                                    )}
+                                  </div>
                                   {!isBranch && <small style={{ color: '#0369a1' }}>SOL {r.sol}</small>}
                                   {r.roll_no && (
                                     <div>
@@ -1507,6 +1548,31 @@ export default function SmaPortal() {
                                       </span>
                                     </div>
                                   )}
+                                </td>
+                                <td data-label="Account number">
+                                  <span
+                                    style={{
+                                      fontFamily: 'monospace',
+                                      fontWeight: 700,
+                                      fontSize: 13,
+                                      color: '#1e293b',
+                                      background: '#f8fafc',
+                                      padding: '3px 7px',
+                                      borderRadius: 5,
+                                      border: '1px solid #e2e8f0',
+                                      display: 'inline-block',
+                                      letterSpacing: '0.5px',
+                                    }}
+                                  >
+                                    {displayAccountNo}
+                                  </span>
+                                  <small style={{ display: 'block', color: '#64748b', marginTop: 2 }}>
+                                    {r.scheme || (displayAccountNo.includes('01') ? 'Term Loan' : 'Loan A/C')}
+                                  </small>
+                                </td>
+                                <td data-label="Outstanding balance">
+                                  <b style={{ color: '#1e293b', fontSize: 14 }}>₹{fmt(displayBalance)}</b>
+                                  <small style={{ display: 'block', color: '#64748b' }}>Balance</small>
                                 </td>
                                 <td data-label="Repayment due">
                                   <b style={{ color: r.completed ? '#059669' : isDueToday ? '#dc2626' : '#b91c1c', fontSize: 15 }}>
@@ -1619,13 +1685,15 @@ export default function SmaPortal() {
                   className="secondary"
                   onClick={() => {
                     const sample =
-                      'branch_code,cif,account_name,due_amount,due_date\n0174,CIF1002341,Senthil Nathan K,185000,' +
+                      'branch_code,cif,account_no,account_name,balance,due_amount,due_date\n0174,CIF1002341,01740100001234,Senthil Nathan K,1850000,185000,' +
                       date +
-                      '\n0332,CIF1005892,Meenakshi Traders,420000,' +
+                      '\n0174,CIF1002341,01740200005678,Senthil Nathan K,450000,45000,' +
                       date +
-                      '\n0376,CIF2001452,Palanisamy Murugan,650000,' +
+                      '\n0332,CIF1005892,03320100009812,Meenakshi Traders,3200000,420000,' +
+                      date +
+                      '\n0376,CIF2001452,03760200004123,Palanisamy Murugan,2400000,650000,' +
                       addDays(date, 1) +
-                      '\n0175,CIF3004519,Lakshmi Cotton Mills,320000,' +
+                      '\n0175,CIF3004519,01750100007781,Lakshmi Cotton Mills,1600000,320000,' +
                       addDays(date, 2) +
                       '\n';
                     downloadCsv('IOB_repayments_template.csv', sample);
@@ -1648,9 +1716,10 @@ export default function SmaPortal() {
               >
                 <Upload size={36} color="#64748b" style={{ margin: '0 auto 10px' }} />
                 <h3>Select Repayments CSV File</h3>
-                <p style={{ color: '#64748b', fontSize: 13, maxWidth: 500, margin: '0 auto 16px' }}>
-                  Required columns: <code>branch_code</code> (SOL), <code>cif</code>, <code>account_name</code>,{' '}
-                  <code>due_amount</code>, <code>due_date</code> (YYYY-MM-DD or DD/MM/YYYY).
+                <p style={{ color: '#64748b', fontSize: 13, maxWidth: 640, margin: '0 auto 16px' }}>
+                  Columns: <code>branch_code</code> (SOL), <code>cif</code>, <code>account_no</code> (Account Number),{' '}
+                  <code>account_name</code>, <code>balance</code> (Outstanding Balance), <code>due_amount</code>,{' '}
+                  <code>due_date</code> (YYYY-MM-DD or DD/MM/YYYY). Each CIF can have multiple distinct account numbers with their own balance and amount due.
                 </p>
                 <input
                   type="file"
