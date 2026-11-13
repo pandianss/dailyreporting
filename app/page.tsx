@@ -1,21 +1,158 @@
 'use client';
 import {useEffect,useState,useRef} from 'react';
-import {LayoutDashboard,Upload,ClipboardList,MessageSquare,Users,Flag,ArrowUpRight,ArrowDownRight,CheckCircle2,Clock,ChevronRight,Download,Plus,Send,RefreshCw,Building2,ExternalLink,UserCheck} from 'lucide-react';
+import {LayoutDashboard,Upload,ClipboardList,MessageSquare,Users,Flag,ArrowUpRight,ArrowDownRight,CheckCircle2,Clock,ChevronRight,Download,Plus,Send,RefreshCw,Building2,ExternalLink,UserCheck,X,FastForward,RotateCcw,Copy,Phone,Sparkles} from 'lucide-react';
 import Login from './Login';
 import {baseFields,parseCSV,validateSnapshot,cutoffs,sanctionSectors,sanctionSectorLabels,sanctionEntryFields,parseDirectoryCSV,validateDirectory} from './model.mjs';
 const sectorLabels:Record<string,string>=sanctionSectorLabels;
 const today=()=>new Date().toLocaleDateString('en-CA',{timeZone:'Asia/Kolkata'});
 const fmt=(n:any)=>n===undefined?'—':Number(n).toLocaleString('en-IN');
 function download(name:string,text:string){const a=document.createElement('a');a.href=URL.createObjectURL(new Blob([text],{type:'text/csv'}));a.download=name;a.click();URL.revokeObjectURL(a.href);}
+
+function getCampaignGroupMsg(camp: any, branchStats: any[], dateStr: string) {
+  const totalToday = branchStats.reduce((acc, b) => acc + Number(b.todayVal || 0), 0);
+  const totalMtd = branchStats.reduce((acc, b) => acc + Number(b.mtd || 0), 0);
+  const totalCumulative = totalMtd + totalToday;
+  const contributing = branchStats.filter((b) => b.todayVal > 0);
+  const nilOrPending = branchStats.filter((b) => b.todayVal === 0);
+  const submittedCount = branchStats.filter((b) => b.hasSubmitted).length;
+
+  const topBranches = [...branchStats]
+    .sort((a, b) => b.todayVal - a.todayVal || b.cumulative - a.cumulative)
+    .slice(0, 5)
+    .filter((b) => b.todayVal > 0);
+
+  const topLines = topBranches.length
+    ? topBranches
+        .map(
+          (b, i) =>
+            `${i + 1}. *${b.branch.name}* (${b.branch.sol}): *+${fmt(b.todayVal)} today* (Total: ${fmt(b.cumulative)})`
+        )
+        .join('\n')
+    : 'No additions recorded yet today.';
+
+  const branchRankings = [...branchStats]
+    .sort((a, b) => b.todayVal - a.todayVal || b.cumulative - a.cumulative)
+    .map(
+      (b, i) =>
+        `${i + 1}. *${b.branch.name}* (${b.branch.sol}): +${fmt(b.todayVal)} | MTD: ${fmt(b.cumulative)}${
+          b.headPhone ? ' | 📞 +' + b.headPhone : ''
+        }`
+    )
+    .join('\n');
+
+  return (
+    `📢 *IOB MADURAI REGION - CAMPAIGN PERFORMANCE REPORT*\n` +
+    `🏆 *Campaign:* ${camp?.title || 'Active Campaign'}\n` +
+    `📅 *Reporting Date:* ${dateStr || 'Today'}\n` +
+    `⏳ *Period:* ${camp?.start || ''} to ${camp?.end || ''}\n\n` +
+    `📊 *Regional Summary:*\n` +
+    `• Mobilized Today: *+${fmt(totalToday)}* (${contributing.length} of 56 branches contributing)\n` +
+    `• Cumulative Total: *${fmt(totalCumulative)}* (MTD: ${fmt(totalMtd)} + Today: ${fmt(totalToday)})\n` +
+    `• Branches Submitted Today: *${submittedCount} / 56*\n\n` +
+    `🌟 *Top Performing Branches Today:*\n` +
+    `${topLines}\n\n` +
+    `📋 *Branch-wise Today's Additions & Cumulative Position:*\n` +
+    `${branchRankings}\n\n` +
+    (nilOrPending.length > 0
+      ? `⚠️ *Branches with NIL Addition / Pending Today (${nilOrPending.length} branches):*\n` +
+        nilOrPending.map((b) => `${b.branch.name} (${b.branch.sol})`).join(', ') +
+        '\n\n'
+      : '') +
+    `🎯 *Action Required:* All Branch Heads are requested to intensify mobilization and ensure daily submission is completed!\n` +
+    `👉 Submit Performance: https://dailyreport-9265a.web.app/?date=${dateStr}`
+  );
+}
+
+function getCampaignIndividualMsg(camp: any, bStat: any, dateStr: string) {
+  const statusRemark =
+    bStat.todayVal > 0
+      ? `👏 *Commendable effort!* Your branch has added *${fmt(
+          bStat.todayVal
+        )}* today under this campaign. Keep up the momentum to maximize regional ranking!`
+      : `⚠️ *Action Required:* NIL additions recorded for today. Please mobilize accounts/commitments immediately before day-end to achieve branch targets.`;
+
+  return (
+    `Dear Branch Head (${bStat.branch?.name} - SOL ${bStat.branch?.sol}),\n\n` +
+    `📊 *IOB Madurai Region · Campaign Performance Update*\n` +
+    `🏆 *Campaign:* ${camp?.title || 'Active Campaign'}\n` +
+    `📅 *Reporting Date:* ${dateStr || 'Today'}\n\n` +
+    `*Your Branch Campaign Position:*\n` +
+    `• Added Today: *${fmt(bStat.todayVal)}* ${
+      bStat.hasSubmitted ? '✓ (Submitted)' : '(Pending Submission)'
+    }\n` +
+    `• Month-to-Date (MTD): *${fmt(bStat.mtd)}*\n` +
+    `• Cumulative Campaign Total: *${fmt(bStat.cumulative)}*\n\n` +
+    `${statusRemark}\n\n` +
+    `Please ensure your branch daily reporting is verified and submitted:\n` +
+    `👉 https://dailyreport-9265a.web.app/?date=${dateStr}\n\n` +
+    `- Regional Office, Madurai`
+  );
+}
+
 export default function Portal(){const [auth,setAuth]=useState<any>(undefined);async function check(){const r=await fetch('/api/auth');const j:any=await r.json();setAuth(j.user);}useEffect(()=>{check().catch(()=>setAuth(null));},[]);if(auth===undefined)return <main className="loading"><img src="/logo.svg" alt="Indian Overseas Bank Logo" className="sitelogo sitelogo-lg"/><p>Opening your workspace…</p></main>;if(!auth)return <Login onSuccess={check}/>;return <Home onExit={()=>setAuth(null)}/>;}
 function Home({onExit}:{onExit:()=>void}){const loadId=useRef(0),routed=useRef(false);const [date,setDate]=useState(today()),[tab,setTab]=useState('Overview'),[data,setData]=useState<any>(null),[error,setError]=useState(''),[notice,setNotice]=useState(''),[busy,setBusy]=useState(false),[search,setSearch]=useState(''),[filter,setFilter]=useState('All branches'),[loginSearch,setLoginSearch]=useState(''),[loginFilter,setLoginFilter]=useState('All'),[sol,setSol]=useState(''),[values,setValues]=useState<any>({}),[reply,setReply]=useState(''),[reviewStatus,setReviewStatus]=useState('reviewed'),[rows,setRows]=useState<any[]>([]),[importName,setImportName]=useState(''),[dirRows,setDirRows]=useState<any[]>([]),[dirFileName,setDirFileName]=useState(''),[meta,setMeta]=useState<any>({cutoff:cutoffs(today()).yesterday,deadline:'17:00',baseline:'',fundedDefinition:'',reason:''}),[campaign,setCampaign]=useState({title:'',start:today(),end:today()}),[contact,setContact]=useState({sol:'0174',name:'',phone:'91'}),[grant,setGrant]=useState({email:'',phone:'',role:'branch',sol:'0174'});
+const [showCampModal, setShowCampModal] = useState(false);
+const [selectedCampId, setSelectedCampId] = useState<string>('');
+const [campSeqIdx, setCampSeqIdx] = useState<number | null>(null);
+const [sentCampBranchSols, setSentCampBranchSols] = useState<string[]>([]);
+const [copiedCampGroupMsg, setCopiedCampGroupMsg] = useState(false);
+const [copiedCampBranchSol, setCopiedCampBranchSol] = useState<string | null>(null);
+const [campBranchFilter, setCampBranchFilter] = useState('All');
+const [campBranchSearch, setCampBranchSearch] = useState('');
 async function load(isSilent=false){const requestId=++loadId.current;if(!isSilent)setError('');try{const r=await fetch('/api/portal?date='+date+'&_t='+Date.now(),{cache:'no-store'}),j:any=await r.json();if(requestId!==loadId.current)return;if(!r.ok)throw Error(j.error);setData(j);if(j.user.role==='branch'){setSol(j.user.sol);setValues((prev:any)=>Object.keys(prev).length?prev:(j.subs.find((x:any)=>x.sol===j.user.sol)?.values||{}));}if(!routed.current){setTab(j.user.role==='branch'?'Branch report':j.user.role==='reviewer'?'Review desk':(j.user.role==='srm'||j.user.role==='gm')?'Overview':'Publish data');setReviewStatus((j.user.role==='srm'||j.user.role==='gm')?'gm_direction':'reviewed');routed.current=true;}}catch(e:any){if(!isSilent)setError(e.message);if(/sign.in|session|account changed/i.test(e.message))onExit();}}
 useEffect(()=>{const d=new URLSearchParams(window.location.search).get('date');if(d){try{cutoffs(d);setDate(d);}catch{}}},[]);
 useEffect(()=>{setData(null);load();setValues({});setReply('');setRows([]);setMeta((m:any)=>({...m,cutoff:cutoffs(date).yesterday}));},[date]);
 useEffect(()=>{const timer=setInterval(()=>{if(document.visibilityState==='visible')load(true);},8000);const onFocus=()=>load(true);const onVisibility=()=>{if(document.visibilityState==='visible')load(true);};window.addEventListener('focus',onFocus);document.addEventListener('visibilitychange',onVisibility);return ()=>{clearInterval(timer);window.removeEventListener('focus',onFocus);document.removeEventListener('visibilitychange',onVisibility);};},[date]);
 async function act(body:any,message:string){setBusy(true);setError('');setNotice('');try{const r=await fetch('/api/portal',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({date,...body})}),j:any=await r.json();if(!r.ok)throw Error(j.error);await load();setNotice(message);return true;}catch(e:any){setError(e.message);return false;}finally{setBusy(false);}}
 function openBranch(s:string,t='Branch report'){setSol(s);setTab(t);const old=data.subs.find((x:any)=>x.sol===s);setValues(old?.values||{});setReply('');}
-const active=data?.pub?.campaigns||data?.campaigns.filter((c:any)=>c.start<=date&&c.end>=date)||[];
+const active=data?.pub?.campaigns||data?.campaigns?.filter((c:any)=>c.start<=date&&c.end>=date)||[];
+const selectedCamp = active.find((c: any) => c.id === (selectedCampId || active[0]?.id)) || active[0];
+
+const campBranchStats = (data?.branches || []).map((b: any) => {
+  const bSnap = data?.pub?.rows?.find((r: any) => r.sol === b.sol);
+  const prior = Number(selectedCamp ? bSnap?.['camp_' + selectedCamp.id + '_prior'] || 0 : 0);
+  const mtd = Number(selectedCamp ? bSnap?.['camp_' + selectedCamp.id + '_mtd'] || 0 : 0);
+  const bSub = data?.subs?.find((s: any) => s.sol === b.sol);
+  const hasSubmitted = Boolean(bSub);
+  const todayVal = Number(selectedCamp ? bSub?.values?.['camp_' + selectedCamp.id] || 0 : 0);
+  const cumulative = mtd + todayVal;
+
+  const branchContact = (data?.contacts || []).find((x: any) => x.sol === b.sol);
+  const branchGrant = (data?.grants || []).find((g: any) => g.sol === b.sol && g.role === 'branch');
+  const loginInfo = (data?.logins || []).find((l: any) => l.sol === b.sol);
+  const headPhone = branchContact?.phone || loginInfo?.phone || branchGrant?.phone || '';
+  const headName = branchContact?.name || loginInfo?.name || branchGrant?.name || b.name + ' Branch Head';
+
+  return {
+    branch: b,
+    prior,
+    mtd,
+    todayVal,
+    cumulative,
+    hasSubmitted,
+    headPhone,
+    headName,
+  };
+});
+
+const totalCampToday = campBranchStats.reduce((acc: number, x: any) => acc + x.todayVal, 0);
+const totalCampMtd = campBranchStats.reduce((acc: number, x: any) => acc + x.mtd, 0);
+const totalCampCumulative = totalCampMtd + totalCampToday;
+const contributingCampCount = campBranchStats.filter((x: any) => x.todayVal > 0).length;
+const submittedCampCount = campBranchStats.filter((x: any) => x.hasSubmitted).length;
+
+const nextCampSeq = () => {
+  if (campSeqIdx === null) return;
+  const current = campBranchStats[campSeqIdx];
+  if (current) {
+    setSentCampBranchSols((prev) => Array.from(new Set([...prev, current.branch.sol])));
+  }
+  if (campSeqIdx + 1 < campBranchStats.length) {
+    setCampSeqIdx(campSeqIdx + 1);
+  } else {
+    setCampSeqIdx(null);
+  }
+};
 const defaultSnap:any={sb_growth:0,cd_growth:0,sb_fy_opened:0,sb_fy_funded:0,cd_fy_opened:0,cd_fy_funded:0,sb_mtd_opened:0,sb_mtd_funded:0,cd_mtd_opened:0,cd_mtd_funded:0,sma0_yesterday_count:0,sma0_yesterday_amount:0,sma0_prior_count:0,sma0_prior_amount:0,sma1_yesterday_count:0,sma1_yesterday_amount:0,sma1_prior_count:0,sma1_prior_amount:0,sma2_yesterday_count:0,sma2_yesterday_amount:0,sma2_prior_count:0,sma2_prior_amount:0,sanction_retail_prior_count:0,sanction_retail_prior_amount:0,sanction_retail_mtd_count:0,sanction_retail_mtd_amount:0,sanction_agri_prior_count:0,sanction_agri_prior_amount:0,sanction_agri_mtd_count:0,sanction_agri_mtd_amount:0,sanction_msme_prior_count:0,sanction_msme_prior_amount:0,sanction_msme_mtd_count:0,sanction_msme_mtd_amount:0};
 const snap=data?.pub?.rows.find((b:any)=>b.sol===sol)||(sol?defaultSnap:null),sub=data?.subs.find((b:any)=>b.sol===sol),branch=data?.branches.find((b:any)=>b.sol===sol);
 const set=(k:string,v:any)=>setValues((o:any)=>({...o,[k]:v}));
@@ -72,7 +209,7 @@ function directoryTemplate(){download('IOB_branch_directory_template.csv','sol,b
 async function switchPortal(target:'sma'|'funding'){setBusy(true);try{const r=await fetch('/api/portal',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({action:'handoff',date})});const j:any=await r.json();if(!r.ok||!j.token)throw Error(j.error||'Failed to create handover');const isMainDomain=window.location.hostname.includes('dailyreport-9265a');const targetBase=isMainDomain?(target==='sma'?'https://dailyreport-sma-9265a.web.app':'https://dailyreport-funding-9265a.web.app'):window.location.origin+'/'+target;window.location.href=`${targetBase}/?handoff=${encodeURIComponent(j.token)}&date=${date}`;}catch(e:any){setError(e.message);setBusy(false);}}
 if(!data)return <main className="loading"><img src="/logo.svg" alt="Indian Overseas Bank Logo" className="sitelogo sitelogo-lg"/><h1>Daily Performance</h1><p>{error||'Opening your regional workspace…'}</p>{error&&<button onClick={()=>load()}>Try again</button>}</main>;
 return <div className={"shell role-"+data.user.role}><aside><div className="brand"><img src="/logo.svg" alt="Indian Overseas Bank Logo" className="sitelogo"/><div>Indian Overseas Bank<small>DINDIGUL REGION</small></div></div><div className="navlabel">PERFORMANCE WORKSPACE</div><nav>{nav.map(([name,Icon]:any)=><button key={name} className={tab===name?'selected':''} onClick={()=>{setTab(name);setNotice('');}}><Icon size={18}/>{name}{name==='Message queue'&&data.jobs.some((x:any)=>x.status!=='sent')&&<i/>}</button>)}</nav><div className="sidebottom"><span className="avatar">{(data.user.name||data.user.email||data.user.phone?.slice(2)||'U')[0].toUpperCase()}</span><div>{data.user.role==='admin'?'Regional administrator':(data.user.role==='srm'||data.user.role==='gm')?'General Manager (GM)':data.user.role==='branch'?'Branch head':'Reviewer'}<small>{data.user.phone?.slice(2)}</small></div></div></aside>
-<main><header><div className="crumb">Dindigul region <ChevronRight size={14}/> {tab}</div><div className="headeractions"><span title="Real-time live sync every 8 seconds" style={{display:'inline-flex',alignItems:'center',gap:5,fontSize:11,color:'#059669',fontWeight:700,background:'#ecfdf5',padding:'4px 8px',borderRadius:20,border:'1px solid #a7f3d0'}}><span style={{width:6,height:6,borderRadius:'50%',background:'#10b981',display:'inline-block'}}/> Live Sync</span><button type="button" className="secondary" onClick={()=>switchPortal('sma')} title="Open SMA Follow-up Portal" style={{display:'inline-flex',alignItems:'center',gap:6,padding:'6px 12px',fontSize:12,fontWeight:600,color:'#b91c1c',borderColor:'#fecaca',background:'#fef2f2'}}>SMA Follow-up <ExternalLink size={13}/></button><button type="button" className="secondary" onClick={()=>switchPortal('funding')} title="Open Low Balance Funding Portal" style={{display:'inline-flex',alignItems:'center',gap:6,padding:'6px 12px',fontSize:12,fontWeight:600,color:'#0284c7',borderColor:'#bae6fd',background:'#f0f9ff'}}>Low Balance Funding <ExternalLink size={13}/></button><span className={"private "+(isGm?"srm-tag":"")}>{data.user.role==='branch'?'Branch head':data.user.role==='reviewer'?'Reviewer':(data.user.role==='srm'||data.user.role==='gm')?'General Manager (GM)':'Admin'}</span><button className="textbutton" onClick={async()=>{await fetch('/api/auth',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({action:'logout'})});onExit();}}>Sign out</button><button className="icon" onClick={()=>load()} aria-label="Refresh"><RefreshCw size={17}/></button></div></header><div className="content"><div className="title"><div><div className="eyebrow">DAILY REPORTING</div><h1>{data.user.role==='branch'?'Daily entry':tab}</h1><p>{tab==='Overview'?'A clear view of branch performance. One day at a time.':tab==='Review desk'?'Review submissions, follow commitments and reply to the group.':tab==='Publish data'?'Validate the confirmed position before opening today’s reporting.':'Dindigul regional performance workspace'}</p></div><label className="date">Reporting date<input type="date" value={date} onChange={e=>e.target.value&&setDate(e.target.value)}/></label></div>
+<main><header><div className="crumb">Dindigul region <ChevronRight size={14}/> {tab}</div><div className="headeractions"><span title="Real-time live sync every 8 seconds" style={{display:'inline-flex',alignItems:'center',gap:5,fontSize:11,color:'#059669',fontWeight:700,background:'#ecfdf5',padding:'4px 8px',borderRadius:20,border:'1px solid #a7f3d0'}}><span style={{width:6,height:6,borderRadius:'50%',background:'#10b981',display:'inline-block'}}/> Live Sync</span><button type="button" className="secondary" onClick={()=>switchPortal('sma')} title="Open SMA Follow-up Portal" style={{display:'inline-flex',alignItems:'center',gap:6,padding:'6px 12px',fontSize:12,fontWeight:600,color:'#b91c1c',borderColor:'#fecaca',background:'#fef2f2'}}>SMA Follow-up <ExternalLink size={13}/></button><button type="button" className="secondary" onClick={()=>switchPortal('funding')} title="Open Low Balance Funding Portal" style={{display:'inline-flex',alignItems:'center',gap:6,padding:'6px 12px',fontSize:12,fontWeight:600,color:'#0284c7',borderColor:'#bae6fd',background:'#f0f9ff'}}>Low Balance Funding <ExternalLink size={13}/></button>{(isAdmin||isGm)&&active.length>0&&<button type="button" className="secondary" onClick={()=>{setSelectedCampId(active[0]?.id);setCampSeqIdx(0);setShowCampModal(true);}} title="Open WhatsApp Campaign Messaging Center" style={{display:'inline-flex',alignItems:'center',gap:6,padding:'6px 12px',fontSize:12,fontWeight:600,color:'#15803d',borderColor:'#86efac',background:'#f0fdf4'}}><MessageSquare size={13}/> Campaign WhatsApp ({active.length})</button>}<span className={"private "+(isGm?"srm-tag":"")}>{data.user.role==='branch'?'Branch head':data.user.role==='reviewer'?'Reviewer':(data.user.role==='srm'||data.user.role==='gm')?'General Manager (GM)':'Admin'}</span><button className="textbutton" onClick={async()=>{await fetch('/api/auth',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({action:'logout'})});onExit();}}>Sign out</button><button className="icon" onClick={()=>load()} aria-label="Refresh"><RefreshCw size={17}/></button></div></header><div className="content"><div className="title"><div><div className="eyebrow">DAILY REPORTING</div><h1>{data.user.role==='branch'?'Daily entry':tab}</h1><p>{tab==='Overview'?'A clear view of branch performance. One day at a time.':tab==='Review desk'?'Review submissions, follow commitments and reply to the group.':tab==='Publish data'?'Validate the confirmed position before opening today’s reporting.':'Dindigul regional performance workspace'}</p></div><label className="date">Reporting date<input type="date" value={date} onChange={e=>e.target.value&&setDate(e.target.value)}/></label></div>
 <div className="tickertape-wrap no-print"><div className="tickertape-label"><span className="live-dot"/> REGIONAL LIVE PULSE</div><div className="tickertape-track"><div className="tickertape-content">{tickerItems.concat(tickerItems).map((item,idx)=><button key={`${item.id}-${idx}`} type="button" className="tickertape-item" onClick={()=>openBranch(item.sol,tab==='Review desk'?'Review entry':'Branch report')} title={`Click to open ${item.branchName} (${item.sol})`}><span className="tickertape-icon">{item.icon}</span><span className="tickertape-text">{item.text}</span><span className="tickertape-link">Open branch →</span></button>)}</div></div></div>
 {error&&<div className="alert error" role="alert">{error}</div>}{notice&&<div className="alert success" role="status">{notice}</div>}
 {!data.pub&&tab!=='Publish data'&&<div className="alert neutral"><Clock size={19}/><div><b>Reporting has not opened for this date.</b><br/>{isAdmin?'Publish the daily position to enable branch submissions.':'Your administrator will open reporting after uploading the daily position.'}</div>{isAdmin&&<button className="secondary" onClick={()=>setTab('Publish data')}>Upload daily data <ChevronRight size={16}/></button>}</div>}
@@ -287,8 +424,518 @@ return <div className={"shell role-"+data.user.role}><aside><div className="bran
     </div>
   </div>
 </>}
-{tab==='Campaigns'&&(isAdmin||isGm)&&<>{isAdmin&&<div className="panel"><h2>Add a campaign</h2><p>Campaigns apply to all 56 branches. Dates are inclusive; overlapping campaigns retain separate totals.</p><div className="grid3">{[['Title','title','text'],['Start date','start','date'],['End date','end','date']].map(([l,k,t])=><label key={k}>{l}<input type={t} value={(campaign as any)[k]} onChange={e=>setCampaign({...campaign,[k]:e.target.value})}/></label>)}</div><button disabled={busy} onClick={()=>act({action:'campaign',...campaign},'Campaign created. Download a new upload template to include its columns.')}><Plus size={16}/>Create campaign</button></div>}<div className="campaigns">{data.campaigns.map((c:any)=><div className="panel" key={c.id}><Flag size={24}/><h2>{c.title}</h2><p>{c.start} to {c.end}</p><span className="badge">{c.start<=date&&c.end>=date?'Active':'Outside reporting period'}</span><small>Import ID: {c.id}</small></div>)}</div></>}
+{tab==='Campaigns'&&(isAdmin||isGm)&&<>{active.length>0&&<div className="panel" style={{borderLeft:'4px solid #16a34a',background:'linear-gradient(to right, #f0fdf4, #ffffff)',marginBottom:20}}><div style={{display:'flex',justifyContent:'space-between',alignItems:'center',flexWrap:'wrap',gap:14}}><div><div style={{display:'flex',alignItems:'center',gap:10}}><span style={{background:'#25D366',color:'#fff',borderRadius:'50%',width:34,height:34,display:'inline-flex',alignItems:'center',justifyContent:'center',boxShadow:'0 2px 6px rgba(37,211,102,0.3)'}}><MessageSquare size={18}/></span><div><h3 style={{margin:0,fontSize:16,fontWeight:800,color:'#166534'}}>WhatsApp Campaign Performance Dispatch Center</h3><p style={{margin:'2px 0 0',fontSize:13,color:'#475569'}}>1-click individual performance messages to branch heads & consolidated group summary for {date}.</p></div></div></div><button type="button" onClick={()=>{setSelectedCampId(active[0]?.id);setCampSeqIdx(0);setShowCampModal(true);}} style={{background:'#16a34a',color:'#fff',border:'none',padding:'10px 18px',borderRadius:8,fontWeight:700,fontSize:13,display:'inline-flex',alignItems:'center',gap:8,cursor:'pointer',boxShadow:'0 2px 8px rgba(22, 163, 74, 0.25)'}}><MessageSquare size={16}/> Open Campaign WhatsApp Dispatcher ({active.length} Active)</button></div></div>}{isAdmin&&<div className="panel"><h2>Add a campaign</h2><p>Campaigns apply to all 56 branches. Dates are inclusive; overlapping campaigns retain separate totals.</p><div className="grid3">{[['Title','title','text'],['Start date','start','date'],['End date','end','date']].map(([l,k,t])=><label key={k}>{l}<input type={t} value={(campaign as any)[k]} onChange={e=>setCampaign({...campaign,[k]:e.target.value})}/></label>)}</div><button disabled={busy} onClick={()=>act({action:'campaign',...campaign},'Campaign created. Download a new upload template to include its columns.')}><Plus size={16}/>Create campaign</button></div>}<div className="campaigns">{data.campaigns.map((c:any)=>{const isActive=c.start<=date&&c.end>=date;const cToday=(data?.branches||[]).reduce((acc:number,b:any)=>{const s=data?.subs?.find((x:any)=>x.sol===b.sol);return acc+Number(s?.values?.['camp_'+c.id]||0);},0);const cMtd=(data?.branches||[]).reduce((acc:number,b:any)=>{const sn=data?.pub?.rows?.find((x:any)=>x.sol===b.sol);return acc+Number(sn?.['camp_'+c.id+'_mtd']||0);},0);const cCum=cMtd+cToday;const cCount=(data?.branches||[]).filter((b:any)=>{const s=data?.subs?.find((x:any)=>x.sol===b.sol);return Number(s?.values?.['camp_'+c.id]||0)>0;}).length;return <div className="panel" key={c.id}><Flag size={24}/><h2>{c.title}</h2><p>{c.start} to {c.end}</p><span className="badge">{isActive?'Active':'Outside reporting period'}</span><small>Import ID: {c.id}</small>{isActive&&<div style={{marginTop:14,paddingTop:12,borderTop:'1px solid #f1f5f9',display:'flex',justifyContent:'space-between',alignItems:'center',flexWrap:'wrap',gap:10}}><div style={{display:'flex',gap:12,fontSize:12,flexWrap:'wrap'}}><span style={{color:'#16a34a',fontWeight:700}}>★ Today: +{fmt(cToday)}</span><span style={{color:'#475569'}}>MTD: {fmt(cMtd)}</span><span style={{color:'#0f172a',fontWeight:700}}>Total: {fmt(cCum)}</span><span style={{color:'#0284c7'}}>({cCount}/56 branches active)</span></div><button type="button" className="button" style={{background:'#25D366',color:'#fff',border:'none',padding:'6px 12px',borderRadius:6,fontSize:12,fontWeight:700,display:'inline-flex',alignItems:'center',gap:6,cursor:'pointer'}} onClick={()=>{setSelectedCampId(c.id);setCampSeqIdx(0);setShowCampModal(true);}}><MessageSquare size={13}/> WhatsApp Dispatch</button></div>}</div>;})}</div></>}
 {tab==='Branch directory'&&isAdmin&&<><div className="panel"><div className="paneltop"><div><h2>Bulk upload branch directory & access</h2><p>Download the 56-branch CSV template, fill in head name, mobile, and email, then upload once to update both WhatsApp mappings and portal access.</p></div><button className="secondary" onClick={directoryTemplate}><Download size={16}/>Download 56-branch template</button></div><div className="uploadzone"><Upload size={30}/><h3>{dirFileName||'Choose branch directory CSV'}</h3><p>Columns: sol (use 3933 for Regional Office GM/Reviewers), head_name, phone (10 digits or 91+10), email (optional), role (branch/reviewer/srm). Blank rows are skipped.</p><input aria-label="Upload branch directory CSV" type="file" accept=".csv,text/csv" onChange={e=>e.target.files?.[0]&&uploadDirectory(e.target.files[0])}/></div>{dirRows.length>0&&<><div className="alert success"><CheckCircle2 size={18}/>{dirRows.length} directory entries validated and ready to apply.</div><div className="tablewrap" style={{marginBottom:14}}><table><thead><tr><th>SOL</th><th>HEAD NAME</th><th>MOBILE</th><th>EMAIL</th><th>ROLE</th></tr></thead><tbody>{dirRows.slice(0,8).map((r:any)=><tr key={r.phone}><td>{r.sol||'—'}</td><td>{r.name||'—'}</td><td>{r.phone}</td><td>{r.email||'—'}</td><td>{r.role}</td></tr>)}</tbody></table>{dirRows.length>8&&<p>First 8 of {dirRows.length} rows shown.</p>}</div></>} <button disabled={!dirRows.length||busy} onClick={async()=>{if(await act({action:'upload-directory',rows:dirRows},'Branch directory and access assignments updated.')){setDirRows([]);setDirFileName('');}}}><Upload size={16}/>Upload & apply directory{dirRows.length?' ('+dirRows.length+')':''}</button></div><div className="panel"><h2>Branch-head WhatsApp mapping</h2><p>Numbers are not inferred. Save the correct current head for each branch.</p><div className="grid3"><label>Branch<select value={contact.sol} onChange={e=>setContact({...contact,sol:e.target.value})}>{data.branches.map((b:any)=><option key={b.sol} value={b.sol}>{b.sol} · {b.name}</option>)}</select></label><label>Branch head name<input value={contact.name} onChange={e=>setContact({...contact,name:e.target.value})}/></label><label>WhatsApp number (91 + 10 digits)<input value={contact.phone} onChange={e=>setContact({...contact,phone:e.target.value})}/></label></div><button disabled={busy} onClick={()=>act({action:'contact',...contact},'Branch-head mapping saved.')}>Save mapping</button><div className="tablewrap"><table><thead><tr><th>BRANCH</th><th>HEAD</th><th>MOBILE</th></tr></thead><tbody>{data.contacts.map((c:any)=><tr key={c.sol}><td>{c.sol} · {data.branches.find((b:any)=>b.sol===c.sol)?.name}</td><td>{c.name}</td><td>{c.phone}</td></tr>)}</tbody></table></div></div><div className="panel"><h2>Portal access assignments</h2><p>Register each mobile number with the officer’s email and role. On first login with their mobile number, that person sets their own 4-digit PIN.</p><div className="grid3"><label>Mobile number<input type="tel" inputMode="numeric" value={grant.phone} onChange={e=>setGrant({...grant,phone:e.target.value})} placeholder="10-digit mobile number"/></label><label>Officer email (optional)<input type="email" value={grant.email} onChange={e=>setGrant({...grant,email:e.target.value})}/></label><label>Role<select value={grant.role} onChange={e=>setGrant({...grant,role:e.target.value})}><option value="branch">Branch head</option><option value="reviewer">Regional reviewer</option><option value="srm">General Manager (GM)</option><option value="none">Revoke access</option></select></label>{grant.role==='branch'?<label>Branch<select value={grant.sol} onChange={e=>setGrant({...grant,sol:e.target.value})}>{data.branches.map((b:any)=><option key={b.sol} value={b.sol}>{b.sol} · {b.name}</option>)}</select></label>:(grant.role==='reviewer'||grant.role==='srm'||grant.role==='gm')&&<label>Attached Office<input value="3933 · Regional Office" disabled/></label>}</div><button disabled={busy} onClick={()=>act({action:'grant',...grant,sol:grant.role==='branch'?grant.sol:(grant.role==='reviewer'||grant.role==='srm'||grant.role==='gm')?'3933':null},'Role assignment saved.')}>Save assignment</button>{data.grants.map((g:any)=><div className="accountrow" key={g.phone}><div><b>{g.phone?.slice(2)}</b><small>{[g.name,g.email].filter(Boolean).join(' · ')||'No name/email'} · {g.role==='srm'||g.role==='gm'?'General Manager (GM)':g.role} {g.sol==='3933'?'3933 · Regional Office':g.sol||''}</small></div>{g.role!=='admin'&&<button className="secondary" disabled={busy} onClick={()=>{if(window.confirm('Reset this user’s PIN and sign them out?'))act({action:'reset-pin',phone:g.phone},'PIN reset. The user will set a new PIN on their next login.');}}>Reset PIN</button>}</div>)}</div></>}
 {tab==='Message queue'&&isAdmin&&<><div className="alert neutral"><MessageSquare size={22}/><div><b>Group delivery requires a configured WhatsApp connection.</b><br/>A queued or blocked message has not been sent. Use <b>Share via WhatsApp</b> or <b>Copy message</b> below to share directly to your group or branch head.</div></div><div className="panel"><h2>Outbound messages</h2>{data.jobs.length?data.jobs.slice().reverse().map((j:any)=>{const headContact=j.sol?data.contacts.find((c:any)=>c.sol===j.sol):null;return <div className="job" key={j.key}><div className="paneltop"><b>{j.type} · {j.date}{j.sol?' · '+j.sol:''}</b><span className={'badge '+j.status}>{j.status}</span></div><pre>{j.text}</pre>{j.error&&<p className="negative">{j.error}</p>}{j.messageId&&<small>Message reference: {j.messageId}</small>}<div style={{display:'flex',flexWrap:'wrap',gap:10,marginTop:10}}><a className="button" style={{display:'inline-flex',alignItems:'center',gap:8,background:'#25D366',color:'#fff',padding:'10px 16px',borderRadius:8,fontWeight:600,textDecoration:'none',fontSize:13}} href={'https://wa.me/?text='+encodeURIComponent(j.text)} target="_blank" rel="noopener noreferrer"><Send size={15}/>Share via WhatsApp</a>{headContact?.phone&&<a className="secondary" style={{display:'inline-flex',alignItems:'center',gap:8,padding:'10px 14px',borderRadius:8,fontWeight:600,textDecoration:'none'}} href={'https://wa.me/'+headContact.phone+'?text='+encodeURIComponent(j.text)} target="_blank" rel="noopener noreferrer"><MessageSquare size={15}/>Message {headContact.name}</a>}<button type="button" className="secondary" onClick={async()=>{await navigator.clipboard.writeText(j.text);setNotice('Message copied to clipboard.');}}>Copy message</button>{['pending','blocked'].includes(j.status)&&<button className="secondary" disabled={busy} onClick={()=>act({action:'retry',key:j.key},'Connection checked. See the updated message status.')}><RefreshCw size={15}/>Retry connection</button>}</div></div>;}):<div className="empty"><MessageSquare size={32}/><h3>No messages yet</h3><p>Publication requests and reviewer replies will appear here.</p></div>}</div></>}
+{showCampModal && selectedCamp && (
+  <div
+    style={{
+      position: 'fixed',
+      top: 0,
+      left: 0,
+      right: 0,
+      bottom: 0,
+      background: 'rgba(15, 23, 42, 0.75)',
+      backdropFilter: 'blur(4px)',
+      display: 'flex',
+      alignItems: 'center',
+      justifyContent: 'center',
+      zIndex: 99999,
+      padding: 16,
+    }}
+    onClick={() => { setShowCampModal(false); setCampSeqIdx(null); }}
+  >
+    <div
+      style={{
+        background: '#fff',
+        borderRadius: 16,
+        width: '100%',
+        maxWidth: 1050,
+        maxHeight: '92vh',
+        display: 'flex',
+        flexDirection: 'column',
+        boxShadow: '0 25px 50px -12px rgba(0, 0, 0, 0.35)',
+        border: '1px solid #cbd5e1',
+        overflow: 'hidden',
+      }}
+      onClick={(e) => e.stopPropagation()}
+    >
+      {/* Modal Header */}
+      <div
+        style={{
+          padding: '16px 22px',
+          borderBottom: '1px solid #e2e8f0',
+          display: 'flex',
+          justifyContent: 'space-between',
+          alignItems: 'center',
+          background: '#f8fafc',
+        }}
+      >
+        <div style={{ display: 'flex', alignItems: 'center', gap: 12 }}>
+          <div
+            style={{
+              width: 40,
+              height: 40,
+              borderRadius: '50%',
+              background: '#25D366',
+              display: 'flex',
+              alignItems: 'center',
+              justifyContent: 'center',
+              color: '#fff',
+              flexShrink: 0,
+              boxShadow: '0 2px 6px rgba(37,211,102,0.3)',
+            }}
+          >
+            <MessageSquare size={22} />
+          </div>
+          <div>
+            <h3 style={{ margin: 0, fontSize: 18, color: '#0f172a', fontWeight: 800 }}>
+              WhatsApp Campaign Performance Dispatcher
+            </h3>
+            <p style={{ margin: '2px 0 0', fontSize: 13, color: '#64748b' }}>
+              1-click individual branch reminders & consolidated regional group message for {date}
+            </p>
+          </div>
+        </div>
+        <button
+          onClick={() => { setShowCampModal(false); setCampSeqIdx(null); }}
+          style={{
+            background: 'transparent',
+            border: 'none',
+            color: '#64748b',
+            cursor: 'pointer',
+            padding: 8,
+            borderRadius: 6,
+            display: 'inline-flex',
+            alignItems: 'center',
+            justifyContent: 'center',
+          }}
+          title="Close"
+        >
+          <X size={20} />
+        </button>
+      </div>
+
+      {/* Modal Body */}
+      <div style={{ padding: '20px 22px', overflowY: 'auto', flex: 1 }}>
+        {/* Campaign Selector if multiple active */}
+        {active.length > 1 && (
+          <div style={{ display: 'flex', gap: 8, marginBottom: 16, overflowX: 'auto', paddingBottom: 4 }}>
+            {active.map((c: any) => (
+              <button
+                key={c.id}
+                type="button"
+                onClick={() => { setSelectedCampId(c.id); setCampSeqIdx(0); }}
+                style={{
+                  padding: '7px 14px',
+                  borderRadius: 20,
+                  fontSize: 12,
+                  fontWeight: 700,
+                  cursor: 'pointer',
+                  border: selectedCamp.id === c.id ? '2px solid #16a34a' : '1px solid #cbd5e1',
+                  background: selectedCamp.id === c.id ? '#f0fdf4' : '#fff',
+                  color: selectedCamp.id === c.id ? '#15803d' : '#475569',
+                  whiteSpace: 'nowrap',
+                }}
+              >
+                🏆 {c.title}
+              </button>
+            ))}
+          </div>
+        )}
+
+        {/* Selected Campaign Header & Performance Strip */}
+        <div style={{ background: '#f8fafc', padding: '14px 18px', borderRadius: 12, border: '1px solid #e2e8f0', marginBottom: 20 }}>
+          <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', flexWrap: 'wrap', gap: 8, marginBottom: 12 }}>
+            <div>
+              <span style={{ fontSize: 11, fontWeight: 700, textTransform: 'uppercase', color: '#16a34a', letterSpacing: '0.05em' }}>
+                Active Campaign
+              </span>
+              <h2 style={{ margin: '2px 0 0', fontSize: 18, fontWeight: 800, color: '#0f172a' }}>
+                {selectedCamp.title}
+              </h2>
+              <small style={{ color: '#64748b' }}>Period: {selectedCamp.start} to {selectedCamp.end}</small>
+            </div>
+            <div style={{ display: 'flex', gap: 6 }}>
+              <span className="badge" style={{ background: '#dcfce7', color: '#166534', fontWeight: 700 }}>
+                {contributingCampCount} Contributing Branches
+              </span>
+              <span className="badge" style={{ background: '#eff6ff', color: '#1e40af', fontWeight: 700 }}>
+                {submittedCampCount} / 56 Submitted Today
+              </span>
+            </div>
+          </div>
+
+          <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(160px, 1fr))', gap: 12 }}>
+            <div style={{ background: '#fff', padding: '10px 14px', borderRadius: 8, border: '1px solid #e2e8f0', borderLeft: '4px solid #16a34a' }}>
+              <span style={{ fontSize: 11, fontWeight: 600, color: '#16a34a' }}>★ ADDED TODAY</span>
+              <div style={{ fontSize: 20, fontWeight: 800, color: '#15803d', marginTop: 2 }}>+{fmt(totalCampToday)}</div>
+              <small style={{ color: '#64748b' }}>Across 56 branches</small>
+            </div>
+            <div style={{ background: '#fff', padding: '10px 14px', borderRadius: 8, border: '1px solid #e2e8f0' }}>
+              <span style={{ fontSize: 11, fontWeight: 600, color: '#64748b' }}>CONFIRMED MTD</span>
+              <div style={{ fontSize: 20, fontWeight: 800, color: '#0f172a', marginTop: 2 }}>{fmt(totalCampMtd)}</div>
+              <small style={{ color: '#64748b' }}>Through yesterday</small>
+            </div>
+            <div style={{ background: '#fff', padding: '10px 14px', borderRadius: 8, border: '1px solid #e2e8f0', borderLeft: '4px solid #2563eb' }}>
+              <span style={{ fontSize: 11, fontWeight: 600, color: '#2563eb' }}>CUMULATIVE TOTAL</span>
+              <div style={{ fontSize: 20, fontWeight: 800, color: '#1d4ed8', marginTop: 2 }}>{fmt(totalCampCumulative)}</div>
+              <small style={{ color: '#64748b' }}>MTD + Today's addition</small>
+            </div>
+            <div style={{ background: '#fff', padding: '10px 14px', borderRadius: 8, border: '1px solid #e2e8f0' }}>
+              <span style={{ fontSize: 11, fontWeight: 600, color: '#64748b' }}>MESSAGED SO FAR</span>
+              <div style={{ fontSize: 20, fontWeight: 800, color: '#0f172a', marginTop: 2 }}>
+                {sentCampBranchSols.length} / {campBranchStats.length}
+              </div>
+              <small style={{ color: '#64748b' }}>Individual branch heads</small>
+            </div>
+          </div>
+        </div>
+
+        {/* 2-Card Row: Individual Dispatcher (Left) & Regional Group Broadcast (Right) */}
+        <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(360px, 1fr))', gap: 16, marginBottom: 24 }}>
+          {/* Card 1: 1-Click Individual Branch Dispatch Sequence */}
+          <div style={{ background: '#fff', border: '1px solid #bbf7d0', borderRadius: 12, padding: 18, display: 'flex', flexDirection: 'column', boxShadow: '0 2px 8px rgba(34,197,94,0.06)' }}>
+            <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 10 }}>
+              <span style={{ background: '#dcfce7', color: '#15803d', padding: '4px 8px', borderRadius: 6, fontSize: 11, fontWeight: 800 }}>
+                OPTION 1 · STEP-BY-STEP DISPATCH
+              </span>
+            </div>
+            <h4 style={{ margin: '0 0 6px', fontSize: 15, fontWeight: 800, color: '#0f172a' }}>
+              1-Click Individual Branch Reminders
+            </h4>
+            <p style={{ fontSize: 13, color: '#475569', margin: '0 0 14px' }}>
+              Click to open WhatsApp pre-filled with that branch's exact performance figures and review link.
+            </p>
+
+            {campSeqIdx !== null && campSeqIdx < campBranchStats.length ? (
+              <div style={{ background: '#f8fafc', border: '1px solid #e2e8f0', borderRadius: 10, padding: 14, marginBottom: 14 }}>
+                <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 4 }}>
+                  <span style={{ fontSize: 11, fontWeight: 700, color: '#15803d', textTransform: 'uppercase' }}>
+                    Branch {campSeqIdx + 1} of {campBranchStats.length}
+                  </span>
+                  <span className="badge" style={{ background: sentCampBranchSols.includes(campBranchStats[campSeqIdx].branch.sol) ? '#dcfce7' : '#fee2e2', color: sentCampBranchSols.includes(campBranchStats[campSeqIdx].branch.sol) ? '#166534' : '#991b1b', fontSize: 10 }}>
+                    {sentCampBranchSols.includes(campBranchStats[campSeqIdx].branch.sol) ? '✓ Messaged' : 'Pending'}
+                  </span>
+                </div>
+                <div style={{ fontSize: 15, fontWeight: 800, color: '#0f172a' }}>
+                  {campBranchStats[campSeqIdx].branch.name} (SOL {campBranchStats[campSeqIdx].branch.sol})
+                </div>
+                <div style={{ fontSize: 12, color: '#475569', marginTop: 3 }}>
+                  Head: <b>{campBranchStats[campSeqIdx].headName}</b> · {campBranchStats[campSeqIdx].headPhone ? `+${campBranchStats[campSeqIdx].headPhone}` : 'No phone listed'}
+                </div>
+                <div style={{ marginTop: 8, display: 'flex', gap: 10, fontSize: 12 }}>
+                  <span style={{ color: campBranchStats[campSeqIdx].todayVal > 0 ? '#15803d' : '#b91c1c', fontWeight: 700 }}>
+                    Today: +{fmt(campBranchStats[campSeqIdx].todayVal)} {campBranchStats[campSeqIdx].todayVal > 0 ? '👏' : '⚠️'}
+                  </span>
+                  <span style={{ color: '#475569' }}>MTD: {fmt(campBranchStats[campSeqIdx].mtd)}</span>
+                  <span style={{ color: '#0f172a', fontWeight: 700 }}>Total: {fmt(campBranchStats[campSeqIdx].cumulative)}</span>
+                </div>
+
+                <div style={{ display: 'flex', gap: 8, marginTop: 12 }}>
+                  {campBranchStats[campSeqIdx].headPhone ? (
+                    <a
+                      href={`https://wa.me/${campBranchStats[campSeqIdx].headPhone}?text=${encodeURIComponent(
+                        getCampaignIndividualMsg(selectedCamp, campBranchStats[campSeqIdx], date)
+                      )}`}
+                      target="_blank"
+                      rel="noopener noreferrer"
+                      onClick={() => setSentCampBranchSols((prev) => Array.from(new Set([...prev, campBranchStats[campSeqIdx].branch.sol])))}
+                      style={{
+                        background: '#25D366',
+                        color: '#fff',
+                        padding: '8px 14px',
+                        borderRadius: 6,
+                        fontWeight: 700,
+                        fontSize: 12,
+                        textDecoration: 'none',
+                        display: 'inline-flex',
+                        alignItems: 'center',
+                        gap: 6,
+                        flex: 1,
+                        justifyContent: 'center',
+                      }}
+                    >
+                      <MessageSquare size={14} /> Send WhatsApp to Head
+                    </a>
+                  ) : (
+                    <span style={{ color: '#991b1b', fontSize: 12, padding: '8px 0' }}>
+                      No mobile number mapped for this branch
+                    </span>
+                  )}
+                  <button
+                    type="button"
+                    onClick={nextCampSeq}
+                    style={{
+                      background: '#16a34a',
+                      color: '#fff',
+                      border: 'none',
+                      padding: '8px 12px',
+                      borderRadius: 6,
+                      fontWeight: 700,
+                      fontSize: 12,
+                      cursor: 'pointer',
+                      display: 'inline-flex',
+                      alignItems: 'center',
+                      gap: 4,
+                    }}
+                  >
+                    Next <FastForward size={14} />
+                  </button>
+                </div>
+              </div>
+            ) : (
+              <div style={{ textAlign: 'center', padding: '20px', background: '#f8fafc', borderRadius: 8, marginBottom: 14 }}>
+                <p style={{ margin: 0, color: '#166534', fontWeight: 700 }}>Sequence completed or not started.</p>
+                <button
+                  type="button"
+                  className="secondary"
+                  style={{ marginTop: 8, fontSize: 12 }}
+                  onClick={() => setCampSeqIdx(0)}
+                >
+                  <RotateCcw size={13} /> Start Dispatch Sequence from Branch 1
+                </button>
+              </div>
+            )}
+
+            {/* Progress bar */}
+            <div style={{ marginTop: 'auto' }}>
+              <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: 11, color: '#64748b', marginBottom: 4 }}>
+                <span>Progress: {sentCampBranchSols.length} of {campBranchStats.length} Branches Sent</span>
+                <span>{Math.round((sentCampBranchSols.length / (campBranchStats.length || 1)) * 100)}%</span>
+              </div>
+              <div style={{ height: 6, background: '#e2e8f0', borderRadius: 3, overflow: 'hidden' }}>
+                <div style={{ width: `${(sentCampBranchSols.length / (campBranchStats.length || 1)) * 100}%`, height: '100%', background: '#16a34a', transition: 'width 0.3s' }} />
+              </div>
+            </div>
+          </div>
+
+          {/* Card 2: Consolidated Regional BM Group Broadcast */}
+          <div style={{ background: '#fff', border: '1px solid #bfdbfe', borderRadius: 12, padding: 18, display: 'flex', flexDirection: 'column', boxShadow: '0 2px 8px rgba(37,99,235,0.06)' }}>
+            <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 10 }}>
+              <span style={{ background: '#dbeafe', color: '#1e40af', padding: '4px 8px', borderRadius: 6, fontSize: 11, fontWeight: 800 }}>
+                OPTION 2 · INSTANT GROUP POST
+              </span>
+            </div>
+            <h4 style={{ margin: '0 0 6px', fontSize: 15, fontWeight: 800, color: '#0f172a' }}>
+              Regional WhatsApp BM Group Broadcast
+            </h4>
+            <p style={{ fontSize: 13, color: '#475569', margin: '0 0 14px' }}>
+              One comprehensive message with top performing branches, regional totals, and full ranking for the WhatsApp group.
+            </p>
+
+            <div style={{ display: 'flex', gap: 8, marginBottom: 12 }}>
+              <a
+                href={`https://wa.me/?text=${encodeURIComponent(getCampaignGroupMsg(selectedCamp, campBranchStats, date))}`}
+                target="_blank"
+                rel="noopener noreferrer"
+                style={{
+                  background: '#2563eb',
+                  color: '#fff',
+                  padding: '9px 14px',
+                  borderRadius: 8,
+                  fontWeight: 700,
+                  fontSize: 12,
+                  textDecoration: 'none',
+                  display: 'inline-flex',
+                  alignItems: 'center',
+                  gap: 6,
+                  flex: 1,
+                  justifyContent: 'center',
+                }}
+              >
+                <Send size={14} /> Share to WhatsApp Group
+              </a>
+              <button
+                type="button"
+                className="secondary"
+                onClick={async () => {
+                  await navigator.clipboard.writeText(getCampaignGroupMsg(selectedCamp, campBranchStats, date));
+                  setCopiedCampGroupMsg(true);
+                  setTimeout(() => setCopiedCampGroupMsg(false), 2500);
+                }}
+                style={{
+                  fontSize: 12,
+                  fontWeight: 700,
+                  display: 'inline-flex',
+                  alignItems: 'center',
+                  gap: 6,
+                  background: copiedCampGroupMsg ? '#ecfdf5' : '#fff',
+                  color: copiedCampGroupMsg ? '#059669' : '#334155',
+                  borderColor: copiedCampGroupMsg ? '#a7f3d0' : '#cbd5e1',
+                }}
+              >
+                {copiedCampGroupMsg ? <CheckCircle2 size={14} /> : <Copy size={14} />}
+                {copiedCampGroupMsg ? 'Copied ✓' : 'Copy Message'}
+              </button>
+            </div>
+
+            {/* Message Preview Box */}
+            <div style={{ flex: 1, maxHeight: 180, overflowY: 'auto', background: '#f8fafc', padding: 10, borderRadius: 8, border: '1px solid #e2e8f0', fontSize: 11, fontFamily: 'monospace', whiteSpace: 'pre-wrap', color: '#334155' }}>
+              {getCampaignGroupMsg(selectedCamp, campBranchStats, date)}
+            </div>
+          </div>
+        </div>
+
+        {/* Card 3: Complete 56-Branch Interactive Table */}
+        <div style={{ background: '#fff', border: '1px solid #e2e8f0', borderRadius: 12, padding: 18 }}>
+          <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', flexWrap: 'wrap', gap: 12, marginBottom: 14 }}>
+            <div>
+              <h4 style={{ margin: 0, fontSize: 15, fontWeight: 800, color: '#0f172a' }}>
+                All 56 Branches Campaign Performance & Messaging Roster
+              </h4>
+              <p style={{ margin: '2px 0 0', fontSize: 12, color: '#64748b' }}>
+                Search, inspect individual branch performance, and send personalized reminders directly.
+              </p>
+            </div>
+            <div style={{ display: 'flex', gap: 8, alignItems: 'center', flexWrap: 'wrap' }}>
+              <input
+                type="text"
+                placeholder="Search branch name or SOL…"
+                value={campBranchSearch}
+                onChange={(e) => setCampBranchSearch(e.target.value)}
+                style={{ padding: '6px 12px', fontSize: 12, borderRadius: 6, border: '1px solid #cbd5e1', width: 220 }}
+              />
+              <select
+                value={campBranchFilter}
+                onChange={(e) => setCampBranchFilter(e.target.value)}
+                style={{ padding: '6px 10px', fontSize: 12, borderRadius: 6, border: '1px solid #cbd5e1' }}
+              >
+                <option value="All">All 56 Branches</option>
+                <option value="Contributed">Contributed Today (&gt;0)</option>
+                <option value="NIL">NIL Today (=0)</option>
+                <option value="Sent">Sent ({sentCampBranchSols.length})</option>
+                <option value="Pending">Pending</option>
+              </select>
+            </div>
+          </div>
+
+          <div className="tablewrap" style={{ maxHeight: 380, overflowY: 'auto' }}>
+            <table>
+              <thead>
+                <tr>
+                  <th style={{ width: 80 }}>STATUS</th>
+                  <th>BRANCH</th>
+                  <th>BRANCH HEAD</th>
+                  <th style={{ textAlign: 'right' }}>ADDED TODAY</th>
+                  <th style={{ textAlign: 'right' }}>CONFIRMED MTD</th>
+                  <th style={{ textAlign: 'right' }}>CUMULATIVE TOTAL</th>
+                  <th style={{ textAlign: 'center', width: 130 }}>ACTION</th>
+                </tr>
+              </thead>
+              <tbody>
+                {campBranchStats
+                  .filter((b: any) => {
+                    const q = campBranchSearch.toLowerCase().trim();
+                    const matchesQuery = !q || b.branch.name.toLowerCase().includes(q) || b.branch.sol.includes(q) || b.headName.toLowerCase().includes(q);
+                    if (!matchesQuery) return false;
+                    if (campBranchFilter === 'Contributed') return b.todayVal > 0;
+                    if (campBranchFilter === 'NIL') return b.todayVal === 0;
+                    if (campBranchFilter === 'Sent') return sentCampBranchSols.includes(b.branch.sol);
+                    if (campBranchFilter === 'Pending') return !sentCampBranchSols.includes(b.branch.sol);
+                    return true;
+                  })
+                  .map((b: any) => {
+                    const isSent = sentCampBranchSols.includes(b.branch.sol);
+                    const isCopied = copiedCampBranchSol === b.branch.sol;
+                    const indMsg = getCampaignIndividualMsg(selectedCamp, b, date);
+
+                    return (
+                      <tr key={b.branch.sol} style={{ background: isSent ? '#f0fdf4' : b.todayVal > 0 ? '#fff' : '#fffaf0' }}>
+                        <td>
+                          {isSent ? (
+                            <span className="badge" style={{ background: '#dcfce7', color: '#166534', fontSize: 10, fontWeight: 700 }}>✓ Sent</span>
+                          ) : (
+                            <span className="badge" style={{ background: '#fee2e2', color: '#991b1b', fontSize: 10, fontWeight: 600 }}>Pending</span>
+                          )}
+                        </td>
+                        <td>
+                          <div style={{ fontWeight: 700, color: '#0f172a' }}>{b.branch.name}</div>
+                          <small style={{ color: '#64748b' }}>SOL {b.branch.sol}</small>
+                        </td>
+                        <td>
+                          <div style={{ fontWeight: 600, color: '#334155' }}>{b.headName}</div>
+                          <small style={{ color: '#64748b' }}>{b.headPhone ? `+${b.headPhone}` : 'No phone'}</small>
+                        </td>
+                        <td style={{ textAlign: 'right' }}>
+                          <span style={{ fontWeight: 800, color: b.todayVal > 0 ? '#15803d' : '#94a3b8' }}>
+                            {b.todayVal > 0 ? `+${fmt(b.todayVal)}` : '0'}
+                          </span>
+                        </td>
+                        <td style={{ textAlign: 'right' }}>{fmt(b.mtd)}</td>
+                        <td style={{ textAlign: 'right', fontWeight: 800, color: '#0f172a' }}>{fmt(b.cumulative)}</td>
+                        <td style={{ textAlign: 'center' }}>
+                          <div style={{ display: 'inline-flex', gap: 6 }}>
+                            {b.headPhone ? (
+                              <a
+                                href={`https://wa.me/${b.headPhone}?text=${encodeURIComponent(indMsg)}`}
+                                target="_blank"
+                                rel="noopener noreferrer"
+                                onClick={() => setSentCampBranchSols((prev) => Array.from(new Set([...prev, b.branch.sol])))}
+                                style={{
+                                  background: '#25D366',
+                                  color: '#fff',
+                                  padding: '5px 10px',
+                                  borderRadius: 6,
+                                  fontSize: 11,
+                                  fontWeight: 700,
+                                  textDecoration: 'none',
+                                  display: 'inline-flex',
+                                  alignItems: 'center',
+                                  gap: 4,
+                                }}
+                                title="Open WhatsApp chat with branch head"
+                              >
+                                <MessageSquare size={12} /> WhatsApp
+                              </a>
+                            ) : (
+                              <span style={{ fontSize: 11, color: '#94a3b8' }}>No phone</span>
+                            )}
+                            <button
+                              type="button"
+                              className="secondary"
+                              style={{ padding: '5px 8px', fontSize: 11 }}
+                              onClick={async () => {
+                                await navigator.clipboard.writeText(indMsg);
+                                setCopiedCampBranchSol(b.branch.sol);
+                                setTimeout(() => setCopiedCampBranchSol(null), 2000);
+                              }}
+                              title="Copy personalized reminder message"
+                            >
+                              {isCopied ? <CheckCircle2 size={12} color="#059669" /> : <Copy size={12} />}
+                            </button>
+                          </div>
+                        </td>
+                      </tr>
+                    );
+                  })}
+              </tbody>
+            </table>
+          </div>
+        </div>
+      </div>
+
+      {/* Modal Footer */}
+      <div style={{ padding: '12px 22px', borderTop: '1px solid #e2e8f0', background: '#f8fafc', display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+        <button
+          type="button"
+          className="secondary"
+          onClick={() => { setSentCampBranchSols([]); setCampSeqIdx(0); }}
+          style={{ fontSize: 12, display: 'inline-flex', alignItems: 'center', gap: 5 }}
+        >
+          <RotateCcw size={13} /> Reset Message Tracker
+        </button>
+        <button
+          type="button"
+          className="button"
+          onClick={() => { setShowCampModal(false); setCampSeqIdx(null); }}
+          style={{ padding: '8px 18px', fontSize: 13 }}
+        >
+          Done
+        </button>
+      </div>
+    </div>
+  </div>
+)}
 </div><footer>Indian Overseas Bank · Dindigul regional reporting <span>All reporting times are IST</span></footer></main></div>;
 }
