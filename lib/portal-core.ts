@@ -132,7 +132,27 @@ export async function ensureAdminAccount(store: Store, config: PortalConfig, pho
 }
 
 export async function getAccountFor(store: Store, phone: string): Promise<any> {
-  const account = await store.get('account:' + phone);
+  let account = await store.get('account:' + phone);
+  if (!account) {
+    const contacts = await store.list('contact:');
+    const matchedContact = contacts.find(
+      (c: any) =>
+        c.phone === phone ||
+        c.phone === phone.replace(/^91/, '') ||
+        '91' + c.phone === phone
+    );
+    if (matchedContact && matchedContact.sol) {
+      account = {
+        phone,
+        name: matchedContact.name || '',
+        email: '',
+        role: 'branch',
+        sol: matchedContact.sol,
+        version: 1,
+      };
+      await store.put('account:' + phone, account);
+    }
+  }
   if (!account) {
     throw new Error('This mobile number is not registered. Contact the administrator.');
   }
@@ -522,10 +542,37 @@ export async function handlePortalPost(
       ) {
         throw new Error('Valid branch, name and 91 + mobile number required');
       }
+      const newPhone = body.phone;
+      const headName = String(body.name).trim();
+      const oldContact = await store.get('contact:' + body.sol);
+
       await store.put('contact:' + body.sol, {
         sol: body.sol,
-        name: String(body.name).trim(),
-        phone: body.phone,
+        name: headName,
+        phone: newPhone,
+      });
+
+      if (oldContact?.phone && oldContact.phone !== newPhone) {
+        const oldAcc = await store.get('account:' + oldContact.phone);
+        if (oldAcc && oldAcc.role === 'branch' && oldAcc.sol === body.sol) {
+          await store.put('account:' + oldContact.phone, {
+            ...oldAcc,
+            role: 'none',
+            sol: null,
+            version: (oldAcc.version || 0) + 1,
+          });
+        }
+      }
+
+      const existingAcc = await store.get('account:' + newPhone);
+      await store.put('account:' + newPhone, {
+        phone: newPhone,
+        name: headName || existingAcc?.name || '',
+        email: existingAcc?.email || '',
+        role: 'branch',
+        sol: body.sol,
+        version: (existingAcc?.version || 0) + 1,
+        ...(existingAcc?.hash ? { hash: existingAcc.hash, salt: existingAcc.salt } : {}),
       });
     } else if (action === 'grant') {
       requireAdmin();
@@ -562,6 +609,13 @@ export async function handlePortalPost(
           ? { hash: old.hash, salt: old.salt }
           : {}),
       });
+      if (roleInput === 'branch' && body.sol) {
+        await store.put('contact:' + body.sol, {
+          sol: body.sol,
+          name: rawName || 'Branch Head',
+          phone,
+        });
+      }
     } else if (action === 'reset-pin') {
       requireAdmin();
       const phone = normalizeMobile(body.phone);
