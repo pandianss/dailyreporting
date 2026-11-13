@@ -818,6 +818,38 @@ export async function handlePortalPost(
         expires: Date.now() + 60_000,
       });
       return { status: 200, body: { ok: true, token } };
+    } else if (action === 'broadcast-absent-branches') {
+      if (auth.user.role === 'branch') {
+        throw new Error('Admin or Reviewer access required');
+      }
+      const jobs = Array.isArray(body.jobs) ? body.jobs : [];
+      const ops: Array<{ type: 'put'; key: string; value: any }> = [];
+      const keys: string[] = [];
+      for (const item of jobs) {
+        if (!item.sol || !item.text) continue;
+        const key = 'out:absent:' + date + ':' + item.sol;
+        keys.push(key);
+        ops.push({
+          type: 'put',
+          key,
+          value: {
+            date,
+            sol: item.sol,
+            type: 'Absent Branch Reminder',
+            status: 'pending',
+            text: item.text,
+            by: auth.user.email,
+            at: now,
+          },
+        });
+      }
+      for (let i = 0; i < ops.length; i += 200) {
+        await store.batch(ops.slice(i, i + 200));
+      }
+      for (const k of keys) {
+        await sendOutboxJob(store, config, k);
+      }
+      return { status: 200, body: { ok: true, queued: keys.length } };
     } else if (action === 'upload-sma') {
       requireAdmin();
       const validated = model.validateSMAAccounts(body.rows, branches);

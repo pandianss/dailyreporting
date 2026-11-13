@@ -22,7 +22,14 @@ import {
   PhoneCall,
   Phone,
   Pause,
-  Play
+  Play,
+  Send,
+  Copy,
+  X,
+  Share2,
+  FastForward,
+  RotateCcw,
+  CheckCheck
 } from 'lucide-react';
 import Login from '../Login';
 import { parseRepaymentsCSV, validateRepayments, addDays } from '../model.mjs';
@@ -30,6 +37,63 @@ import { parseRepaymentsCSV, validateRepayments, addDays } from '../model.mjs';
 function fmt(n: any) {
   if (n === null || n === undefined || n === '' || isNaN(Number(n))) return '0';
   return Number(n).toLocaleString('en-IN');
+}
+
+function copyToClipboard(text: string) {
+  if (typeof navigator !== 'undefined' && navigator.clipboard && navigator.clipboard.writeText) {
+    navigator.clipboard.writeText(text);
+  } else if (typeof document !== 'undefined') {
+    const ta = document.createElement('textarea');
+    ta.value = text;
+    ta.style.position = 'fixed';
+    ta.style.opacity = '0';
+    document.body.appendChild(ta);
+    ta.select();
+    document.execCommand('copy');
+    document.body.removeChild(ta);
+  }
+}
+
+function getBranchAbsentWaMsg(m: any, dateStr: string) {
+  const cleanDate = dateStr || 'Today';
+  const headNameStr = m.headName ? ` (${m.headName})` : '';
+  return (
+    `Dear Branch Head${headNameStr} - ${m.branch?.name || 'Branch'} (SOL ${m.branch?.sol || ''}),\n\n` +
+    `⚠️ *URGENT: SMA PREVENTION FOLLOW-UP ALERT (${cleanDate})*\n\n` +
+    `You have NOT logged into the SMA Prevention Portal yet today.\n\n` +
+    `*Your Branch Repayment Position:*\n` +
+    `• Due Today (${cleanDate}): ${m.todayItems?.length || 0} borrower accounts, ₹${fmt(m.todayAmt)} (${m.todayPend || 0} pending recovery)\n` +
+    `• Next 3 Days Due: ${m.next3Items?.length || 0} accounts, ₹${fmt(m.next3Amt)}\n` +
+    `• Total Scheduled: ${m.branchItems?.length || 0} accounts, ₹${fmt(m.totalAmt)}\n\n` +
+    `*Action Required:* Please log in immediately and mark repayments recovered to prevent SMA slippage today.\n` +
+    `👉 Portal: https://dailyreport-sma-9265a.web.app/`
+  );
+}
+
+function getRegionalAbsentGroupMsg(absentList: any[], dateStr: string) {
+  const cleanDate = dateStr || 'Today';
+  const totalDueTodayAmt = absentList.reduce((acc, m) => acc + Number(m.todayAmt || 0), 0);
+  const totalDueTodayAccts = absentList.reduce((acc, m) => acc + Number(m.todayItems?.length || 0), 0);
+
+  const branchLines = absentList
+    .map((m, idx) => {
+      const phoneStr = m.headPhone ? ` | 📞 +${m.headPhone}` : '';
+      return `${idx + 1}. *${m.branch?.name || ''}* (${m.branch?.sol}): ${m.todayItems?.length || 0} accts (₹${fmt(m.todayAmt)})${phoneStr}`;
+    })
+    .join('\n');
+
+  return (
+    `📢 *IOB MADURAI REGION - PENDING PORTAL LOGINS & SMA ACTION REQUIRED*\n` +
+    `*Date:* ${cleanDate}\n\n` +
+    `The following *${absentList.length} branches* have NOT yet logged in to the SMA Prevention Portal today.\n\n` +
+    `*Branch-wise Pending Due Today:*\n` +
+    `${branchLines}\n\n` +
+    `*Summary of Pending Branches:*\n` +
+    `• Total Absent Branches: *${absentList.length}*\n` +
+    `• Accounts Due Today at Slippage Risk: *${totalDueTodayAccts} accounts* (₹${fmt(totalDueTodayAmt)})\n\n` +
+    `⚠️ *Branch Heads are instructed to log in immediately and update repayment status to prevent SMA slippage today:*\n` +
+    `👉 https://dailyreport-sma-9265a.web.app/`
+  );
 }
 
 export default function SmaPortal() {
@@ -53,6 +117,14 @@ export default function SmaPortal() {
   const [activityFilter, setActivityFilter] = useState<'all' | 'logins' | 'cleared'>('all');
   const [readyRefFilter, setReadyRefFilter] = useState<'all' | 'logged' | 'pending' | 'attended' | 'cleared'>('all');
   const [readyRefSearch, setReadyRefSearch] = useState('');
+  const [showAbsentModal, setShowAbsentModal] = useState(false);
+  const [absentSeqIdx, setAbsentSeqIdx] = useState<number | null>(null);
+  const [sentAbsentSols, setSentAbsentSols] = useState<string[]>([]);
+  const [copiedGroupMsg, setCopiedGroupMsg] = useState(false);
+  const [copiedBranchSol, setCopiedBranchSol] = useState<string | null>(null);
+  const [broadcastingBackend, setBroadcastingBackend] = useState(false);
+  const [absentSearch, setAbsentSearch] = useState('');
+  const [absentModalFilter, setAbsentModalFilter] = useState<'all' | 'pending' | 'sent'>('all');
 
   const fileRef = useRef<HTMLInputElement>(null);
 
@@ -530,6 +602,71 @@ export default function SmaPortal() {
       return a.branch.sol.localeCompare(b.branch.sol);
     });
 
+  const absentBranches = branchMetrics.filter((m: any) => !m.isLoggedIn);
+
+  function openBranchWhatsApp(m: any) {
+    const cleanPhone = (m.headPhone || '').replace(/\D/g, '');
+    const waPhone = cleanPhone.startsWith('91') ? cleanPhone : cleanPhone ? `91${cleanPhone}` : '';
+    const text = getBranchAbsentWaMsg(m, date);
+    const url = waPhone
+      ? `https://wa.me/${waPhone}?text=${encodeURIComponent(text)}`
+      : `https://web.whatsapp.com/send?text=${encodeURIComponent(text)}`;
+    if (typeof window !== 'undefined') {
+      window.open(url, '_blank', 'noopener,noreferrer');
+    }
+    setSentAbsentSols((prev) => Array.from(new Set([...prev, m.branch.sol])));
+  }
+
+  function startAbsentSequence() {
+    if (absentBranches.length === 0) return;
+    setAbsentSeqIdx(0);
+    openBranchWhatsApp(absentBranches[0]);
+  }
+
+  function nextAbsentSequence() {
+    if (absentSeqIdx === null) return;
+    const nextIdx = absentSeqIdx + 1;
+    if (nextIdx < absentBranches.length) {
+      setAbsentSeqIdx(nextIdx);
+      openBranchWhatsApp(absentBranches[nextIdx]);
+    } else {
+      setAbsentSeqIdx(null);
+      setNotice(`Completed WhatsApp messaging sequence for all ${absentBranches.length} absent branches!`);
+    }
+  }
+
+  async function handleServerBroadcast() {
+    try {
+      setBroadcastingBackend(true);
+      const jobs = absentBranches.map((m: any) => ({
+        sol: m.branch.sol,
+        phone: m.headPhone,
+        branchName: m.branch.name,
+        text: getBranchAbsentWaMsg(m, date),
+      }));
+      const r = await fetch('/api/data', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          action: 'broadcast-absent-branches',
+          date,
+          jobs,
+        }),
+      });
+      const j: any = await r.json();
+      if (r.ok && j.ok) {
+        setNotice(`Successfully recorded ${j.queued} absent branch reminder jobs in server outbox!`);
+        setSentAbsentSols(absentBranches.map((m: any) => m.branch.sol));
+      } else {
+        setError(j.error || 'Failed to dispatch broadcast');
+      }
+    } catch (err: any) {
+      setError(err?.message || 'Error broadcasting to absent branches');
+    } finally {
+      setBroadcastingBackend(false);
+    }
+  }
+
   // Roll No Aggregations for Appreciation Certificate
   const rollStatsMap = new Map<string, { rollNo: string; count: number; completedCount: number; amount: number; sols: Set<string> }>();
   for (const r of branchRepayments) {
@@ -704,6 +841,28 @@ export default function SmaPortal() {
             >
               <Download size={14} /> Export Attendance CSV
             </button>
+            {pendingCount > 0 && (
+              <button
+                style={{
+                  background: '#25D366',
+                  color: '#ffffff',
+                  fontWeight: 700,
+                  border: 'none',
+                  padding: '7px 14px',
+                  borderRadius: 6,
+                  display: 'inline-flex',
+                  alignItems: 'center',
+                  gap: 6,
+                  cursor: 'pointer',
+                  boxShadow: '0 2px 6px rgba(37,211,102,0.3)',
+                  fontSize: 13,
+                }}
+                onClick={() => setShowAbsentModal(true)}
+                title="Send WhatsApp alert with branch summary to branches yet to log in"
+              >
+                <MessageSquare size={14} /> WhatsApp Absent Branches ({pendingCount})
+              </button>
+            )}
             {!isFullTab && (
               <button
                 className="secondary"
@@ -725,10 +884,43 @@ export default function SmaPortal() {
             </strong>
             <small>{Math.round((loggedCount / totalBranches) * 100)}% branch participation</small>
           </div>
-          <div style={{ borderLeft: '4px solid #dc2626' }}>
-            <span style={{ color: '#dc2626', fontWeight: 700 }}>⚠️ PENDING LOGIN</span>
+          <div
+            style={{
+              borderLeft: '4px solid #dc2626',
+              cursor: pendingCount > 0 ? 'pointer' : 'default',
+              background: pendingCount > 0 ? '#fffcfc' : undefined,
+              transition: 'background 0.2s',
+            }}
+            onClick={() => {
+              if (pendingCount > 0) setShowAbsentModal(true);
+            }}
+            title={pendingCount > 0 ? 'Click to send WhatsApp reminder to all absent branches' : undefined}
+          >
+            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+              <span style={{ color: '#dc2626', fontWeight: 700 }}>⚠️ PENDING LOGIN</span>
+              {pendingCount > 0 && (
+                <span
+                  style={{
+                    fontSize: 11,
+                    color: '#059669',
+                    background: '#ecfdf5',
+                    border: '1px solid #a7f3d0',
+                    padding: '2px 6px',
+                    borderRadius: 4,
+                    fontWeight: 700,
+                    display: 'inline-flex',
+                    alignItems: 'center',
+                    gap: 3,
+                  }}
+                >
+                  <MessageSquare size={11} /> WhatsApp all →
+                </span>
+              )}
+            </div>
             <strong style={{ color: '#b91c1c' }}>{pendingCount}</strong>
-            <small>Branches not yet logged in today</small>
+            <small style={{ color: '#dc2626' }}>
+              {pendingCount > 0 ? `Click to WhatsApp summary to all ${pendingCount} branches` : 'All branches logged in'}
+            </small>
           </div>
           <div style={{ borderLeft: '4px solid #0284c7' }}>
             <span style={{ color: '#0284c7', fontWeight: 700 }}>📋 CASES ATTENDED</span>
@@ -1411,50 +1603,74 @@ export default function SmaPortal() {
                     <h2>Branch Repayment Follow-up Status</h2>
                     <p>Accounts slated for repayment today ({date}) and over the next 3 days.</p>
                   </div>
-                  <button
-                    className="secondary"
-                    onClick={() => {
-                      const csvHeader =
-                        'SOL,Branch,Due Today Accts,Due Today ₹,Due Today Completed,Due Today Pending,Next 3 Days Accts,Next 3 Days ₹,Total Accts,Total Due ₹,Total Cleared ₹,Completion %\n';
-                      const csvRows = data.branches
-                        .map((b: any) => {
-                          const branchItems = allRepayments.filter((r: any) => r.sol === b.sol);
-                          const todayItems = branchItems.filter((r: any) => r.due_date === date);
-                          const todayAmt = todayItems.reduce((acc, r) => acc + Number(r.due_amount || 0), 0);
-                          const todayComp = todayItems.filter((r: any) => r.completed);
-                          const todayPend = todayItems.length - todayComp.length;
-                          const next3Items = branchItems.filter((r: any) => r.due_date > date);
-                          const next3Amt = next3Items.reduce((acc, r) => acc + Number(r.due_amount || 0), 0);
-                          const totalAmt = todayAmt + next3Amt;
-                          const totalCompAmt = branchItems
-                            .filter((r: any) => r.completed)
-                            .reduce((acc, r) => acc + Number(r.due_amount || 0), 0);
-                          const totalCompCount = branchItems.filter((r: any) => r.completed).length;
-                          const pct = branchItems.length
-                            ? Math.round((totalCompCount / branchItems.length) * 100)
-                            : 100;
+                  <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap' }}>
+                    <button
+                      className="secondary"
+                      onClick={() => {
+                        const csvHeader =
+                          'SOL,Branch,Due Today Accts,Due Today ₹,Due Today Completed,Due Today Pending,Next 3 Days Accts,Next 3 Days ₹,Total Accts,Total Due ₹,Total Cleared ₹,Completion %\n';
+                        const csvRows = data.branches
+                          .map((b: any) => {
+                            const branchItems = allRepayments.filter((r: any) => r.sol === b.sol);
+                            const todayItems = branchItems.filter((r: any) => r.due_date === date);
+                            const todayAmt = todayItems.reduce((acc, r) => acc + Number(r.due_amount || 0), 0);
+                            const todayComp = todayItems.filter((r: any) => r.completed);
+                            const todayPend = todayItems.length - todayComp.length;
+                            const next3Items = branchItems.filter((r: any) => r.due_date > date);
+                            const next3Amt = next3Items.reduce((acc, r) => acc + Number(r.due_amount || 0), 0);
+                            const totalAmt = todayAmt + next3Amt;
+                            const totalCompAmt = branchItems
+                              .filter((r: any) => r.completed)
+                              .reduce((acc, r) => acc + Number(r.due_amount || 0), 0);
+                            const totalCompCount = branchItems.filter((r: any) => r.completed).length;
+                            const pct = branchItems.length
+                              ? Math.round((totalCompCount / branchItems.length) * 100)
+                              : 100;
 
-                          return [
-                            b.sol,
-                            `"${b.name}"`,
-                            todayItems.length,
-                            todayAmt,
-                            todayComp.length,
-                            todayPend,
-                            next3Items.length,
-                            next3Amt,
-                            branchItems.length,
-                            totalAmt,
-                            totalCompAmt,
-                            pct + '%',
-                          ].join(',');
-                        })
-                        .join('\n');
-                      downloadCsv(`IOB_repayments_summary_${date}.csv`, csvHeader + csvRows);
-                    }}
-                  >
-                    <Download size={16} /> Export repayment summary
-                  </button>
+                            return [
+                              b.sol,
+                              `"${b.name}"`,
+                              todayItems.length,
+                              todayAmt,
+                              todayComp.length,
+                              todayPend,
+                              next3Items.length,
+                              next3Amt,
+                              branchItems.length,
+                              totalAmt,
+                              totalCompAmt,
+                              pct + '%',
+                            ].join(',');
+                          })
+                          .join('\n');
+                        downloadCsv(`IOB_repayments_summary_${date}.csv`, csvHeader + csvRows);
+                      }}
+                    >
+                      <Download size={16} /> Export repayment summary
+                    </button>
+                    {absentBranches.length > 0 && (
+                      <button
+                        style={{
+                          background: '#25D366',
+                          color: '#ffffff',
+                          fontWeight: 700,
+                          border: 'none',
+                          padding: '8px 14px',
+                          borderRadius: 6,
+                          display: 'inline-flex',
+                          alignItems: 'center',
+                          gap: 6,
+                          cursor: 'pointer',
+                          boxShadow: '0 2px 6px rgba(37,211,102,0.3)',
+                          fontSize: 13,
+                        }}
+                        onClick={() => setShowAbsentModal(true)}
+                        title="Send WhatsApp message with branch summary to branches yet to log in"
+                      >
+                        <MessageSquare size={15} /> WhatsApp Absent Branches ({absentBranches.length})
+                      </button>
+                    )}
+                  </div>
                 </div>
 
                 <div className="toolbar" style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', flexWrap: 'wrap', gap: 8 }}>
@@ -2760,6 +2976,640 @@ export default function SmaPortal() {
           .no-print { display: none !important; }
         }
       `}</style>
+
+      {/* Absent Branches WhatsApp Messaging Modal */}
+      {showAbsentModal && (
+        <div
+          role="dialog"
+          aria-modal="true"
+          style={{
+            position: 'fixed',
+            top: 0,
+            left: 0,
+            right: 0,
+            bottom: 0,
+            background: 'rgba(15, 23, 42, 0.75)',
+            backdropFilter: 'blur(4px)',
+            display: 'flex',
+            alignItems: 'center',
+            justifyContent: 'center',
+            zIndex: 9999,
+            padding: 16,
+          }}
+          onClick={() => {
+            setShowAbsentModal(false);
+            setAbsentSeqIdx(null);
+          }}
+        >
+          <div
+            style={{
+              background: '#ffffff',
+              borderRadius: 16,
+              maxWidth: 980,
+              width: '100%',
+              maxHeight: '92vh',
+              overflow: 'hidden',
+              display: 'flex',
+              flexDirection: 'column',
+              boxShadow: '0 25px 50px -12px rgba(0, 0, 0, 0.35)',
+              border: '1px solid #cbd5e1',
+            }}
+            onClick={(e) => e.stopPropagation()}
+          >
+            {/* Modal Header */}
+            <div
+              style={{
+                padding: '16px 22px',
+                borderBottom: '1px solid #e2e8f0',
+                display: 'flex',
+                justifyContent: 'space-between',
+                alignItems: 'center',
+                background: '#f8fafc',
+              }}
+            >
+              <div style={{ display: 'flex', alignItems: 'center', gap: 12 }}>
+                <div
+                  style={{
+                    width: 40,
+                    height: 40,
+                    borderRadius: '50%',
+                    background: '#25D366',
+                    display: 'flex',
+                    alignItems: 'center',
+                    justifyContent: 'center',
+                    color: '#fff',
+                    flexShrink: 0,
+                    boxShadow: '0 2px 6px rgba(37,211,102,0.3)',
+                  }}
+                >
+                  <MessageSquare size={22} />
+                </div>
+                <div>
+                  <h3 style={{ margin: 0, fontSize: 18, color: '#0f172a', fontWeight: 800 }}>
+                    WhatsApp Absent Branches ({absentBranches.length} Pending Login)
+                  </h3>
+                  <p style={{ margin: '2px 0 0', fontSize: 13, color: '#64748b' }}>
+                    1-click individual dispatch sequence or instant consolidated group message for {date}
+                  </p>
+                </div>
+              </div>
+              <button
+                onClick={() => {
+                  setShowAbsentModal(false);
+                  setAbsentSeqIdx(null);
+                }}
+                style={{
+                  background: 'transparent',
+                  border: 'none',
+                  color: '#64748b',
+                  cursor: 'pointer',
+                  padding: 8,
+                  borderRadius: 6,
+                  display: 'inline-flex',
+                  alignItems: 'center',
+                  justifyContent: 'center',
+                }}
+                title="Close"
+              >
+                <X size={20} />
+              </button>
+            </div>
+
+            {/* Modal Body */}
+            <div style={{ padding: '20px 22px', overflowY: 'auto', flex: 1 }}>
+              {absentBranches.length === 0 ? (
+                <div style={{ textAlign: 'center', padding: '40px 20px' }}>
+                  <div style={{ fontSize: 48, marginBottom: 12 }}>🎉</div>
+                  <h3 style={{ margin: '0 0 8px', color: '#047857' }}>All 56 Branches Have Logged In!</h3>
+                  <p style={{ color: '#64748b', margin: 0 }}>
+                    There are no absent branches pending login for {date}. 100% participation achieved!
+                  </p>
+                </div>
+              ) : (
+                <>
+                  {/* Top 3 Workflow Cards */}
+                  <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(280px, 1fr))', gap: 14, marginBottom: 20 }}>
+                    {/* Card 1: 1-Click Guided Dispatch Sequence */}
+                    <div
+                      style={{
+                        background: '#f0fdf4',
+                        border: '1px solid #bbf7d0',
+                        borderRadius: 12,
+                        padding: 16,
+                        display: 'flex',
+                        flexDirection: 'column',
+                        justifyContent: 'space-between',
+                      }}
+                    >
+                      <div>
+                        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 6 }}>
+                          <span style={{ fontSize: 12, fontWeight: 700, color: '#166534', textTransform: 'uppercase', letterSpacing: '0.5px' }}>
+                            🚀 1-Click Dispatch Sequence
+                          </span>
+                          <span
+                            style={{
+                              fontSize: 11,
+                              fontWeight: 700,
+                              background: '#dcfce7',
+                              color: '#15803d',
+                              padding: '2px 8px',
+                              borderRadius: 12,
+                            }}
+                          >
+                            {sentAbsentSols.length} / {absentBranches.length} Sent
+                          </span>
+                        </div>
+                        <p style={{ fontSize: 13, color: '#334155', margin: '0 0 12px' }}>
+                          Cycles through absent branches in sequence, pre-populating each branch head's tailored repayment stats in WhatsApp Web.
+                        </p>
+                      </div>
+
+                      {absentSeqIdx === null ? (
+                        <button
+                          style={{
+                            background: '#16a34a',
+                            color: '#fff',
+                            border: 'none',
+                            padding: '9px 16px',
+                            borderRadius: 8,
+                            fontWeight: 700,
+                            fontSize: 13,
+                            display: 'inline-flex',
+                            alignItems: 'center',
+                            justifyContent: 'center',
+                            gap: 6,
+                            cursor: 'pointer',
+                            boxShadow: '0 2px 4px rgba(22, 163, 74, 0.25)',
+                          }}
+                          onClick={startAbsentSequence}
+                        >
+                          <Play size={15} /> Start 1-Click Sequence ({absentBranches.length} branches)
+                        </button>
+                      ) : (
+                        <div>
+                          <div
+                            style={{
+                              background: '#fff',
+                              border: '1px solid #86efac',
+                              borderRadius: 8,
+                              padding: '10px 12px',
+                              marginBottom: 10,
+                            }}
+                          >
+                            <div style={{ fontSize: 11, fontWeight: 700, color: '#15803d', textTransform: 'uppercase' }}>
+                              Currently Messaging: Branch {absentSeqIdx + 1} of {absentBranches.length}
+                            </div>
+                            <div style={{ fontSize: 14, fontWeight: 800, color: '#0f172a', marginTop: 2 }}>
+                              {absentBranches[absentSeqIdx]?.branch.name} (SOL {absentBranches[absentSeqIdx]?.branch.sol})
+                            </div>
+                            <div style={{ fontSize: 12, color: '#475569', marginTop: 2 }}>
+                              Head: {absentBranches[absentSeqIdx]?.headName} | {absentBranches[absentSeqIdx]?.headPhone ? `+${absentBranches[absentSeqIdx]?.headPhone}` : 'No phone'}
+                            </div>
+                            <div style={{ fontSize: 12, color: '#b91c1c', fontWeight: 600, marginTop: 2 }}>
+                              Due Today: {absentBranches[absentSeqIdx]?.todayItems.length} accounts, ₹{fmt(absentBranches[absentSeqIdx]?.todayAmt)}
+                            </div>
+                          </div>
+                          <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap' }}>
+                            <button
+                              style={{
+                                background: '#16a34a',
+                                color: '#fff',
+                                border: 'none',
+                                padding: '8px 12px',
+                                borderRadius: 6,
+                                fontWeight: 700,
+                                fontSize: 12,
+                                display: 'inline-flex',
+                                alignItems: 'center',
+                                gap: 5,
+                                cursor: 'pointer',
+                                flex: 1,
+                              }}
+                              onClick={nextAbsentSequence}
+                            >
+                              <FastForward size={14} /> Next Branch ({absentSeqIdx + 2 <= absentBranches.length ? absentBranches[absentSeqIdx + 1]?.branch.name : 'Finish'}) →
+                            </button>
+                            <button
+                              style={{
+                                background: '#f1f5f9',
+                                color: '#475569',
+                                border: '1px solid #cbd5e1',
+                                padding: '8px 10px',
+                                borderRadius: 6,
+                                fontWeight: 600,
+                                fontSize: 12,
+                                cursor: 'pointer',
+                              }}
+                              onClick={() => setAbsentSeqIdx(null)}
+                            >
+                              Stop
+                            </button>
+                          </div>
+                        </div>
+                      )}
+                    </div>
+
+                    {/* Card 2: Consolidated Regional BM Group Broadcast */}
+                    <div
+                      style={{
+                        background: '#eff6ff',
+                        border: '1px solid #bfdbfe',
+                        borderRadius: 12,
+                        padding: 16,
+                        display: 'flex',
+                        flexDirection: 'column',
+                        justifyContent: 'space-between',
+                      }}
+                    >
+                      <div>
+                        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 6 }}>
+                          <span style={{ fontSize: 12, fontWeight: 700, color: '#1e40af', textTransform: 'uppercase', letterSpacing: '0.5px' }}>
+                            📢 Regional BM Group Broadcast
+                          </span>
+                          <span
+                            style={{
+                              fontSize: 11,
+                              fontWeight: 700,
+                              background: '#dbeafe',
+                              color: '#1d4ed8',
+                              padding: '2px 8px',
+                              borderRadius: 12,
+                            }}
+                          >
+                            All {absentBranches.length} in 1 Post
+                          </span>
+                        </div>
+                        <p style={{ fontSize: 13, color: '#334155', margin: '0 0 12px' }}>
+                          One comprehensive message listing all {absentBranches.length} pending branches and today's recovery targets for the WhatsApp BM group.
+                        </p>
+                      </div>
+
+                      <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap' }}>
+                        <button
+                          style={{
+                            background: copiedGroupMsg ? '#059669' : '#2563eb',
+                            color: '#fff',
+                            border: 'none',
+                            padding: '9px 14px',
+                            borderRadius: 8,
+                            fontWeight: 700,
+                            fontSize: 13,
+                            display: 'inline-flex',
+                            alignItems: 'center',
+                            justifyContent: 'center',
+                            gap: 6,
+                            cursor: 'pointer',
+                            flex: 1,
+                            transition: 'background 0.2s',
+                          }}
+                          onClick={() => {
+                            const groupText = getRegionalAbsentGroupMsg(absentBranches, date);
+                            copyToClipboard(groupText);
+                            setCopiedGroupMsg(true);
+                            setTimeout(() => setCopiedGroupMsg(false), 3000);
+                          }}
+                        >
+                          {copiedGroupMsg ? <Check size={15} /> : <Copy size={15} />}
+                          {copiedGroupMsg ? 'Copied to Clipboard!' : 'Copy Group Message'}
+                        </button>
+                        <a
+                          href="https://web.whatsapp.com/"
+                          target="_blank"
+                          rel="noopener noreferrer"
+                          style={{
+                            background: '#ffffff',
+                            color: '#1e40af',
+                            border: '1px solid #bfdbfe',
+                            padding: '9px 12px',
+                            borderRadius: 8,
+                            fontWeight: 700,
+                            fontSize: 13,
+                            display: 'inline-flex',
+                            alignItems: 'center',
+                            gap: 5,
+                            textDecoration: 'none',
+                            cursor: 'pointer',
+                          }}
+                          title="Open WhatsApp Web to paste the copied message"
+                        >
+                          <ExternalLink size={14} /> Open Web
+                        </a>
+                      </div>
+                    </div>
+
+                    {/* Card 3: Server Outbox Queue */}
+                    <div
+                      style={{
+                        background: '#faf5ff',
+                        border: '1px solid #e9d5ff',
+                        borderRadius: 12,
+                        padding: 16,
+                        display: 'flex',
+                        flexDirection: 'column',
+                        justifyContent: 'space-between',
+                      }}
+                    >
+                      <div>
+                        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 6 }}>
+                          <span style={{ fontSize: 12, fontWeight: 700, color: '#6b21a8', textTransform: 'uppercase', letterSpacing: '0.5px' }}>
+                            ⚡ Server Outbox Queue
+                          </span>
+                          <span
+                            style={{
+                              fontSize: 11,
+                              fontWeight: 700,
+                              background: '#f3e8ff',
+                              color: '#7e22ce',
+                              padding: '2px 8px',
+                              borderRadius: 12,
+                            }}
+                          >
+                            Background Bot
+                          </span>
+                        </div>
+                        <p style={{ fontSize: 13, color: '#334155', margin: '0 0 12px' }}>
+                          Save {absentBranches.length} individual outbox reminder jobs to Firestore for automated background dispatch via server worker.
+                        </p>
+                      </div>
+
+                      <button
+                        style={{
+                          background: '#7c3aed',
+                          color: '#fff',
+                          border: 'none',
+                          padding: '9px 14px',
+                          borderRadius: 8,
+                          fontWeight: 700,
+                          fontSize: 13,
+                          display: 'inline-flex',
+                          alignItems: 'center',
+                          justifyContent: 'center',
+                          gap: 6,
+                          cursor: broadcastingBackend ? 'not-allowed' : 'pointer',
+                          opacity: broadcastingBackend ? 0.7 : 1,
+                        }}
+                        disabled={broadcastingBackend}
+                        onClick={handleServerBroadcast}
+                      >
+                        <Send size={15} />
+                        {broadcastingBackend ? 'Queueing in Server…' : `Queue Server Outbox (${absentBranches.length})`}
+                      </button>
+                    </div>
+                  </div>
+
+                  {/* Branch Table Filter Bar */}
+                  <div
+                    style={{
+                      display: 'flex',
+                      justifyContent: 'space-between',
+                      alignItems: 'center',
+                      flexWrap: 'wrap',
+                      gap: 10,
+                      marginBottom: 12,
+                      paddingBottom: 10,
+                      borderBottom: '1px solid #f1f5f9',
+                    }}
+                  >
+                    <div style={{ display: 'flex', gap: 6, alignItems: 'center' }}>
+                      <span style={{ fontSize: 13, fontWeight: 700, color: '#334155' }}>Absent Branches List</span>
+                      <span className="badge" style={{ background: '#fee2e2', color: '#991b1b', fontWeight: 700 }}>
+                        {absentBranches.length}
+                      </span>
+                    </div>
+
+                    <div style={{ display: 'flex', gap: 8, alignItems: 'center', flexWrap: 'wrap' }}>
+                      <div style={{ display: 'flex', background: '#f1f5f9', borderRadius: 6, padding: 2 }}>
+                        <button
+                          style={{
+                            background: absentModalFilter === 'all' ? '#fff' : 'transparent',
+                            color: absentModalFilter === 'all' ? '#0f172a' : '#64748b',
+                            border: 'none',
+                            padding: '4px 10px',
+                            borderRadius: 4,
+                            fontSize: 12,
+                            fontWeight: 600,
+                            cursor: 'pointer',
+                          }}
+                          onClick={() => setAbsentModalFilter('all')}
+                        >
+                          All ({absentBranches.length})
+                        </button>
+                        <button
+                          style={{
+                            background: absentModalFilter === 'pending' ? '#fff' : 'transparent',
+                            color: absentModalFilter === 'pending' ? '#b91c1c' : '#64748b',
+                            border: 'none',
+                            padding: '4px 10px',
+                            borderRadius: 4,
+                            fontSize: 12,
+                            fontWeight: 600,
+                            cursor: 'pointer',
+                          }}
+                          onClick={() => setAbsentModalFilter('pending')}
+                        >
+                          Pending ({absentBranches.length - sentAbsentSols.length})
+                        </button>
+                        <button
+                          style={{
+                            background: absentModalFilter === 'sent' ? '#fff' : 'transparent',
+                            color: absentModalFilter === 'sent' ? '#15803d' : '#64748b',
+                            border: 'none',
+                            padding: '4px 10px',
+                            borderRadius: 4,
+                            fontSize: 12,
+                            fontWeight: 600,
+                            cursor: 'pointer',
+                          }}
+                          onClick={() => setAbsentModalFilter('sent')}
+                        >
+                          Sent ({sentAbsentSols.length})
+                        </button>
+                      </div>
+
+                      <input
+                        placeholder="Filter branch or SOL…"
+                        value={absentSearch}
+                        onChange={(e) => setAbsentSearch(e.target.value)}
+                        style={{ padding: '6px 12px', fontSize: 12, minWidth: 200 }}
+                      />
+                    </div>
+                  </div>
+
+                  {/* Branch-by-Branch Table */}
+                  <div style={{ overflowX: 'auto', border: '1px solid #e2e8f0', borderRadius: 8 }}>
+                    <table style={{ margin: 0, width: '100%' }}>
+                      <thead>
+                        <tr style={{ background: '#f8fafc' }}>
+                          <th style={{ width: 70, textAlign: 'center' }}>Status</th>
+                          <th>Branch & SOL</th>
+                          <th>Branch Head Contact</th>
+                          <th style={{ textAlign: 'right' }}>Due Today ({date})</th>
+                          <th style={{ textAlign: 'right' }}>Next 3 Days Due</th>
+                          <th style={{ textAlign: 'right', minWidth: 160 }}>1-Click WhatsApp</th>
+                        </tr>
+                      </thead>
+                      <tbody>
+                        {absentBranches
+                          .filter((m: any) => {
+                            const isSent = sentAbsentSols.includes(m.branch.sol);
+                            if (absentModalFilter === 'pending' && isSent) return false;
+                            if (absentModalFilter === 'sent' && !isSent) return false;
+                            if (!absentSearch.trim()) return true;
+                            const q = absentSearch.toLowerCase().trim();
+                            return (
+                              m.branch.name.toLowerCase().includes(q) ||
+                              m.branch.sol.includes(q) ||
+                              m.headName.toLowerCase().includes(q) ||
+                              m.headPhone.includes(q)
+                            );
+                          })
+                          .map((m: any, idx: number) => {
+                            const isSent = sentAbsentSols.includes(m.branch.sol);
+                            const cleanPhone = (m.headPhone || '').replace(/\D/g, '');
+                            const isCopied = copiedBranchSol === m.branch.sol;
+
+                            return (
+                              <tr
+                                key={`absent-${m.branch.sol}`}
+                                style={{
+                                  background: isSent ? '#f0fdf4' : idx % 2 === 0 ? '#ffffff' : '#fafafa',
+                                }}
+                              >
+                                <td style={{ textAlign: 'center' }}>
+                                  {isSent ? (
+                                    <span
+                                      className="badge"
+                                      style={{
+                                        background: '#dcfce7',
+                                        color: '#15803d',
+                                        fontSize: 11,
+                                        fontWeight: 700,
+                                        padding: '2px 6px',
+                                      }}
+                                    >
+                                      ✓ Sent
+                                    </span>
+                                  ) : (
+                                    <span
+                                      className="badge"
+                                      style={{
+                                        background: '#fee2e2',
+                                        color: '#991b1b',
+                                        fontSize: 11,
+                                        fontWeight: 700,
+                                        padding: '2px 6px',
+                                      }}
+                                    >
+                                      Pending
+                                    </span>
+                                  )}
+                                </td>
+                                <td>
+                                  <div style={{ fontWeight: 700, color: '#0f172a' }}>{m.branch.name}</div>
+                                  <small style={{ color: '#64748b' }}>SOL {m.branch.sol}</small>
+                                </td>
+                                <td>
+                                  <div style={{ fontWeight: 600, color: '#334155' }}>{m.headName}</div>
+                                  <small style={{ color: '#64748b' }}>{m.headPhone ? `+${m.headPhone}` : 'No phone listed'}</small>
+                                </td>
+                                <td style={{ textAlign: 'right' }}>
+                                  <div style={{ fontWeight: 800, color: m.todayPend > 0 ? '#b91c1c' : '#059669' }}>
+                                    ₹{fmt(m.todayAmt)}
+                                  </div>
+                                  <small style={{ color: '#64748b' }}>
+                                    {m.todayItems.length} accounts ({m.todayPend} pending)
+                                  </small>
+                                </td>
+                                <td style={{ textAlign: 'right' }}>
+                                  <div style={{ fontWeight: 700, color: '#0284c7' }}>₹{fmt(m.next3Amt)}</div>
+                                  <small style={{ color: '#64748b' }}>{m.next3Items.length} accounts</small>
+                                </td>
+                                <td style={{ textAlign: 'right' }}>
+                                  <div style={{ display: 'inline-flex', gap: 6, alignItems: 'center' }}>
+                                    <button
+                                      style={{
+                                        background: '#25D366',
+                                        color: '#ffffff',
+                                        border: 'none',
+                                        padding: '5px 10px',
+                                        borderRadius: 6,
+                                        fontWeight: 700,
+                                        fontSize: 11,
+                                        display: 'inline-flex',
+                                        alignItems: 'center',
+                                        gap: 4,
+                                        cursor: 'pointer',
+                                      }}
+                                      onClick={() => openBranchWhatsApp(m)}
+                                      title="Open WhatsApp chat with pre-filled branch repayment summary"
+                                    >
+                                      <MessageSquare size={12} /> Send WhatsApp
+                                    </button>
+                                    <button
+                                      style={{
+                                        background: '#f1f5f9',
+                                        color: isCopied ? '#059669' : '#475569',
+                                        border: '1px solid #cbd5e1',
+                                        padding: '5px 8px',
+                                        borderRadius: 6,
+                                        fontWeight: 600,
+                                        fontSize: 11,
+                                        display: 'inline-flex',
+                                        alignItems: 'center',
+                                        gap: 3,
+                                        cursor: 'pointer',
+                                      }}
+                                      onClick={() => {
+                                        const text = getBranchAbsentWaMsg(m, date);
+                                        copyToClipboard(text);
+                                        setCopiedBranchSol(m.branch.sol);
+                                        setTimeout(() => setCopiedBranchSol(null), 2000);
+                                      }}
+                                      title="Copy this branch's individual message"
+                                    >
+                                      {isCopied ? <Check size={11} /> : <Copy size={11} />}
+                                      {isCopied ? 'Copied' : 'Copy'}
+                                    </button>
+                                  </div>
+                                </td>
+                              </tr>
+                            );
+                          })}
+                      </tbody>
+                    </table>
+                  </div>
+                </>
+              )}
+            </div>
+
+            {/* Modal Footer */}
+            <div
+              style={{
+                padding: '12px 22px',
+                borderTop: '1px solid #e2e8f0',
+                display: 'flex',
+                justifyContent: 'space-between',
+                alignItems: 'center',
+                background: '#f8fafc',
+              }}
+            >
+              <div style={{ fontSize: 12, color: '#64748b' }}>
+                Total Absent: <b>{absentBranches.length}</b> branches | Messaged: <b style={{ color: '#16a34a' }}>{sentAbsentSols.length}</b> | Pending: <b style={{ color: '#dc2626' }}>{Math.max(0, absentBranches.length - sentAbsentSols.length)}</b>
+              </div>
+              <button
+                className="secondary"
+                onClick={() => {
+                  setShowAbsentModal(false);
+                  setAbsentSeqIdx(null);
+                }}
+                style={{ padding: '6px 16px', fontWeight: 600 }}
+              >
+                Close
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   );
 }
