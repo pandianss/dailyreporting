@@ -47,8 +47,10 @@ export default function SmaPortal() {
   const [error, setError] = useState('');
   const [busy, setBusy] = useState(false);
   const [showAll, setShowAll] = useState(false);
+  const [viewMode, setViewMode] = useState<'grouped' | 'flat'>('grouped');
   const [selectedCertRoll, setSelectedCertRoll] = useState<string | null>(null);
   const [tickerPaused, setTickerPaused] = useState(false);
+  const [tickerSpeed, setTickerSpeed] = useState<'leisurely' | 'slow' | 'normal'>('leisurely');
   const [readyRefFilter, setReadyRefFilter] = useState<'all' | 'logged' | 'pending' | 'attended' | 'cleared'>('all');
   const [readyRefSearch, setReadyRefSearch] = useState('');
 
@@ -184,6 +186,28 @@ export default function SmaPortal() {
         roll_no: trimmedRoll,
       },
       `✓ Repayment marked completed by Roll No ${trimmedRoll || 'Staff'}! Live synced.`
+    );
+  }
+
+  async function updateBorrowerMobile(accountSol: string, accountId: string, currentMobile = '') {
+    const raw = window.prompt(
+      'Enter borrower 10-digit mobile number for calling & WhatsApp follow-up:',
+      currentMobile ? currentMobile.replace(/^91/, '') : ''
+    );
+    if (raw === null) return;
+    const clean = raw.replace(/[\s+-]/g, '');
+    if (!/^[6-9]\d{9}$/.test(clean)) {
+      alert('Please enter a valid 10-digit Indian mobile number (e.g. 9842100000)');
+      return;
+    }
+    await act(
+      {
+        action: 'repayment-status',
+        sol: accountSol,
+        id: accountId,
+        mobile: '91' + clean,
+      },
+      `✓ Updated borrower mobile +91 ${clean}. Call and WhatsApp ready.`
     );
   }
 
@@ -363,6 +387,74 @@ export default function SmaPortal() {
 
   const visibleAccounts = showAll ? filteredAccounts : filteredAccounts.slice(0, 50);
 
+  // Explicit real account number check (user: "for now don't show the account numbers, show them after i update the data")
+  const hasAnyExplicitAccountNo = branchRepayments.some(
+    (r: any) => Boolean(r.account_no) && !r.account_no.includes('020000') && !r.account_no.includes('010000')
+  );
+  const hasAnyExplicitBalance = branchRepayments.some((r: any) => r.balance !== null && r.balance !== undefined);
+
+  // Group accounts by CIF for presentation
+  const cifGroups = (() => {
+    const map = new Map<
+      string,
+      {
+        cif: string;
+        account_name: string;
+        mobile: string;
+        sol: string;
+        accounts: any[];
+        totalDue: number;
+        todayDue: number;
+        totalBalance: number;
+        todayPendingCount: number;
+        totalPendingCount: number;
+        isAllCompleted: boolean;
+      }
+    >();
+
+    for (const r of filteredAccounts) {
+      const key = r.cif || r.account_no || r.id;
+      let grp = map.get(key);
+      if (!grp) {
+        grp = {
+          cif: r.cif || '—',
+          account_name: r.account_name,
+          mobile: r.mobile || '',
+          sol: r.sol,
+          accounts: [],
+          totalDue: 0,
+          todayDue: 0,
+          totalBalance: 0,
+          todayPendingCount: 0,
+          totalPendingCount: 0,
+          isAllCompleted: true,
+        };
+        map.set(key, grp);
+      }
+      grp.accounts.push(r);
+      const due = Number(r.due_amount || 0);
+      grp.totalDue += due;
+      if (r.balance !== null && r.balance !== undefined) {
+        grp.totalBalance += Number(r.balance);
+      }
+      if (r.due_date === date) {
+        grp.todayDue += due;
+        if (!r.completed) grp.todayPendingCount++;
+      }
+      if (!r.completed) {
+        grp.totalPendingCount++;
+        grp.isAllCompleted = false;
+      }
+      if (!grp.mobile && r.mobile) {
+        grp.mobile = r.mobile;
+      }
+    }
+
+    return Array.from(map.values());
+  })();
+
+  const visibleCifGroups = showAll ? cifGroups : cifGroups.slice(0, 40);
+
   const logins: any[] = data.logins || [];
   const branchLogins = logins.filter((l: any) => l.role === 'branch');
   const loggedInSols = new Set(branchLogins.map((l: any) => l.sol));
@@ -515,6 +607,12 @@ export default function SmaPortal() {
       time: '',
     });
   }
+
+  const activeTickerItems = tickerItems.slice(0, 25);
+  const tickerSecs = Math.max(
+    180,
+    activeTickerItems.length * (tickerSpeed === 'leisurely' ? 22 : tickerSpeed === 'slow' ? 35 : 12)
+  );
 
   const navItems = [
     ...(!isBranch ? [['Overview', LayoutDashboard]] : []),
@@ -1024,11 +1122,50 @@ export default function SmaPortal() {
           {/* RUNNING TICKER FOR BRANCH LOGINS & UPDATES */}
           <div className="tickertape-wrap no-print">
             <div className="tickertape-label">
-              <span className="live-dot" /> REGIONAL LIVE PULSE
+              <div style={{ display: 'inline-flex', alignItems: 'center', gap: 6 }}>
+                <span className="live-dot" /> REGIONAL LIVE PULSE
+              </div>
+              <div style={{ display: 'inline-flex', alignItems: 'center', gap: 6 }}>
+                <button
+                  type="button"
+                  className="tickertape-pause-btn"
+                  onClick={() =>
+                    setTickerSpeed(
+                      tickerSpeed === 'leisurely'
+                        ? 'slow'
+                        : tickerSpeed === 'slow'
+                          ? 'normal'
+                          : 'leisurely'
+                    )
+                  }
+                  title="Change marquee speed"
+                >
+                  {tickerSpeed === 'leisurely'
+                    ? '🐢 Slow (22s)'
+                    : tickerSpeed === 'slow'
+                      ? '🐌 Extra Slow (35s)'
+                      : '🐇 Normal (12s)'}
+                </button>
+                <button
+                  type="button"
+                  className="tickertape-pause-btn"
+                  onClick={() => setTickerPaused(!tickerPaused)}
+                  title={tickerPaused ? 'Click to resume marquee' : 'Click to pause marquee'}
+                >
+                  {tickerPaused ? <Play size={11} /> : <Pause size={11} />}
+                  <span>{tickerPaused ? 'Resume' : 'Pause'}</span>
+                </button>
+              </div>
             </div>
             <div className="tickertape-track">
-              <div className="tickertape-content">
-                {tickerItems.concat(tickerItems).map((item, idx) => (
+              <div
+                className="tickertape-content"
+                style={{
+                  animationDuration: `${tickerSecs}s`,
+                  animationPlayState: tickerPaused ? 'paused' : undefined,
+                }}
+              >
+                {activeTickerItems.concat(activeTickerItems).map((item, idx) => (
                   <button
                     key={`${item.id}-${idx}`}
                     type="button"
@@ -1439,9 +1576,9 @@ export default function SmaPortal() {
                   </div>
                 </div>
 
-                <div className="toolbar" style={{ display: 'flex', gap: 10, flexWrap: 'wrap' }}>
+                <div className="toolbar" style={{ display: 'flex', gap: 10, flexWrap: 'wrap', alignItems: 'center' }}>
                   <input
-                    placeholder="Search account number, CIF, borrower name…"
+                    placeholder="Search CIF, borrower name, mobile…"
                     value={search}
                     onChange={(e) => setSearch(e.target.value)}
                     style={{ flex: 1, minWidth: 200 }}
@@ -1453,208 +1590,618 @@ export default function SmaPortal() {
                     <option value="Pending">Pending only</option>
                     <option value="Completed">Completed only</option>
                   </select>
+                  <div style={{ display: 'inline-flex', background: '#f1f5f9', borderRadius: 8, padding: 3, border: '1px solid #cbd5e1' }}>
+                    <button
+                      type="button"
+                      onClick={() => setViewMode('grouped')}
+                      style={{
+                        background: viewMode === 'grouped' ? '#0d4b9f' : 'transparent',
+                        color: viewMode === 'grouped' ? '#fff' : '#475569',
+                        border: 0,
+                        borderRadius: 6,
+                        padding: '6px 12px',
+                        fontSize: 12,
+                        fontWeight: 600,
+                        cursor: 'pointer',
+                        display: 'inline-flex',
+                        alignItems: 'center',
+                        gap: 5,
+                      }}
+                    >
+                      👥 Group by CIF
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => setViewMode('flat')}
+                      style={{
+                        background: viewMode === 'flat' ? '#0d4b9f' : 'transparent',
+                        color: viewMode === 'flat' ? '#fff' : '#475569',
+                        border: 0,
+                        borderRadius: 6,
+                        padding: '6px 12px',
+                        fontSize: 12,
+                        fontWeight: 600,
+                        cursor: 'pointer',
+                        display: 'inline-flex',
+                        alignItems: 'center',
+                        gap: 5,
+                      }}
+                    >
+                      📋 Flat List
+                    </button>
+                  </div>
                 </div>
 
                 {filteredAccounts.length ? (
                   <>
-                    <div className="tablewrap branchlist repaylist">
-                      <table>
-                        <thead>
-                          <tr>
-                            <th>BORROWER / CIF</th>
-                            <th>ACCOUNT NUMBER</th>
-                            <th>OUTSTANDING BALANCE</th>
-                            <th>REPAYMENT DUE</th>
-                            <th>DUE DATE & PERIOD</th>
-                            <th>STATUS</th>
-                            <th>FOLLOW-UP / ACTIONS</th>
-                          </tr>
-                        </thead>
-                        <tbody>
-                          {visibleAccounts.map((r: any) => {
-                            const isDueToday = r.due_date === date;
-                            const isPast = r.due_date < date;
-                            const totalCifAccounts = cifAccountCounts.get(r.cif) || 1;
-                            const displayAccountNo = r.account_no || `${r.sol}020000${(r.cif || '').slice(-6)}`;
-                            const displayBalance =
-                              r.balance !== null && r.balance !== undefined
-                                ? r.balance
-                                : Math.round(Number(r.due_amount || 0) * 4.5) + 25000;
+                    {viewMode === 'grouped' ? (
+                      /* VIEW 1: GROUPED BY CIF */
+                      <div className="cif-groups-container">
+                        {visibleCifGroups.map((grp) => {
+                          const isCifDueToday = grp.todayDue > 0;
+                          const isTodayPending = grp.todayPendingCount > 0;
+                          const rawMobile = grp.mobile ? grp.mobile.replace(/^91/, '') : '';
+                          const waMobile = grp.mobile ? (grp.mobile.startsWith('91') ? grp.mobile : '91' + grp.mobile) : '';
+                          const callMobile = grp.mobile ? (grp.mobile.startsWith('91') ? '+' + grp.mobile : '+91' + grp.mobile) : '';
 
-                            return (
-                              <tr
-                                key={r.id}
+                          return (
+                            <div
+                              key={grp.cif}
+                              style={{
+                                background: '#fff',
+                                border: isTodayPending ? '2px solid #fca5a5' : '1px solid #e2e8f0',
+                                borderRadius: 12,
+                                marginBottom: 16,
+                                boxShadow: isTodayPending ? '0 4px 14px rgba(220, 38, 38, 0.08)' : '0 1px 3px rgba(0,0,0,0.03)',
+                                overflow: 'hidden',
+                              }}
+                            >
+                              {/* CIF Group Header Bar */}
+                              <div
                                 style={{
-                                  background: isDueToday
-                                    ? r.completed
-                                      ? '#f0fdf4'
-                                      : '#fff1f2'
-                                    : r.completed
-                                      ? '#f0fdf4'
-                                      : '#fff',
+                                  background: isTodayPending ? '#fff5f5' : '#f8fafc',
+                                  padding: '14px 18px',
+                                  borderBottom: '1px solid #edf2f7',
+                                  display: 'flex',
+                                  justifyContent: 'space-between',
+                                  alignItems: 'center',
+                                  flexWrap: 'wrap',
+                                  gap: 12,
                                 }}
                               >
-                                <td data-label="Borrower / CIF">
-                                  <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
-                                    <b>{r.account_name}</b>
-                                    {isDueToday && (
+                                <div>
+                                  <div style={{ display: 'flex', alignItems: 'center', gap: 8, flexWrap: 'wrap' }}>
+                                    <span style={{ fontSize: 16, fontWeight: 800, color: '#0f172a' }}>
+                                      {grp.account_name}
+                                    </span>
+                                    <span
+                                      style={{
+                                        fontFamily: 'monospace',
+                                        fontSize: 12,
+                                        fontWeight: 700,
+                                        background: '#e2e8f0',
+                                        color: '#334155',
+                                        padding: '2px 8px',
+                                        borderRadius: 5,
+                                      }}
+                                    >
+                                      CIF: {grp.cif}
+                                    </span>
+                                    <span
+                                      className="badge"
+                                      style={{
+                                        background: '#dbeafe',
+                                        color: '#1e40af',
+                                        fontSize: 11,
+                                        fontWeight: 700,
+                                      }}
+                                    >
+                                      {grp.accounts.length} {grp.accounts.length === 1 ? 'A/C' : 'A/Cs'} under CIF
+                                    </span>
+                                    {isTodayPending && (
                                       <span
                                         className="badge"
                                         style={{
                                           background: '#dc2626',
                                           color: '#fff',
                                           fontSize: 10,
-                                          fontWeight: 700,
-                                          padding: '2px 6px',
+                                          fontWeight: 800,
+                                          padding: '2px 8px',
                                         }}
                                       >
-                                        DUE TODAY
+                                        ★ {grp.todayPendingCount} DUE TODAY
                                       </span>
                                     )}
-                                  </div>
-                                  <div style={{ display: 'flex', alignItems: 'center', gap: 6, flexWrap: 'wrap', marginTop: 3 }}>
-                                    <small style={{ fontWeight: 600, color: '#475569' }}>CIF: {r.cif}</small>
-                                    {totalCifAccounts > 1 && (
+                                    {grp.isAllCompleted && (
                                       <span
                                         className="badge"
                                         style={{
-                                          background: '#fef3c7',
-                                          color: '#92400e',
+                                          background: '#dcfce7',
+                                          color: '#15803d',
                                           fontSize: 10,
                                           fontWeight: 700,
-                                          padding: '1px 5px',
+                                          padding: '2px 8px',
                                         }}
                                       >
-                                        {totalCifAccounts} A/Cs under CIF
+                                        ✓ ALL CLEARED
                                       </span>
                                     )}
+                                    {!isBranch && <span style={{ fontSize: 11, color: '#0369a1', fontWeight: 600 }}>SOL {grp.sol}</span>}
                                   </div>
-                                  {!isBranch && <small style={{ color: '#0369a1' }}>SOL {r.sol}</small>}
-                                  {r.roll_no && (
-                                    <div>
-                                      <span
-                                        className="badge"
-                                        style={{
-                                          background: '#fef3c7',
-                                          color: '#92400e',
-                                          fontSize: 10,
-                                          fontWeight: 700,
-                                          padding: '1px 6px',
-                                          marginTop: 3,
-                                          display: 'inline-block',
-                                        }}
-                                      >
-                                        🏅 Roll: {r.roll_no}
-                                      </span>
-                                    </div>
-                                  )}
-                                </td>
-                                <td data-label="Account number">
-                                  <span
-                                    style={{
-                                      fontFamily: 'monospace',
-                                      fontWeight: 700,
-                                      fontSize: 13,
-                                      color: '#1e293b',
-                                      background: '#f8fafc',
-                                      padding: '3px 7px',
-                                      borderRadius: 5,
-                                      border: '1px solid #e2e8f0',
-                                      display: 'inline-block',
-                                      letterSpacing: '0.5px',
-                                    }}
-                                  >
-                                    {displayAccountNo}
-                                  </span>
-                                  <small style={{ display: 'block', color: '#64748b', marginTop: 2 }}>
-                                    {r.scheme || (displayAccountNo.includes('01') ? 'Term Loan' : 'Loan A/C')}
-                                  </small>
-                                </td>
-                                <td data-label="Outstanding balance">
-                                  <b style={{ color: '#1e293b', fontSize: 14 }}>₹{fmt(displayBalance)}</b>
-                                  <small style={{ display: 'block', color: '#64748b' }}>Balance</small>
-                                </td>
-                                <td data-label="Repayment due">
-                                  <b style={{ color: r.completed ? '#059669' : isDueToday ? '#dc2626' : '#b91c1c', fontSize: 15 }}>
-                                    ₹{fmt(r.due_amount)}
+
+                                  {/* Provision for Mobile Number (Call & WhatsApp / SMS Message) */}
+                                  <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginTop: 8, flexWrap: 'wrap' }}>
+                                    {rawMobile ? (
+                                      <>
+                                        <span
+                                          style={{
+                                            display: 'inline-flex',
+                                            alignItems: 'center',
+                                            gap: 5,
+                                            fontSize: 12,
+                                            fontWeight: 700,
+                                            color: '#1e293b',
+                                            background: '#f1f5f9',
+                                            padding: '3px 8px',
+                                            borderRadius: 6,
+                                            border: '1px solid #cbd5e1',
+                                          }}
+                                        >
+                                          <Phone size={12} color="#0d4b9f" /> +91 {rawMobile}
+                                        </span>
+                                        <a
+                                          href={`tel:${callMobile}`}
+                                          className="button"
+                                          style={{
+                                            display: 'inline-flex',
+                                            alignItems: 'center',
+                                            gap: 5,
+                                            background: '#0d4b9f',
+                                            color: '#fff',
+                                            fontSize: 11,
+                                            padding: '4px 10px',
+                                            borderRadius: 6,
+                                            textDecoration: 'none',
+                                            fontWeight: 700,
+                                          }}
+                                          title={`Call ${grp.account_name} on ${callMobile}`}
+                                        >
+                                          <Phone size={12} /> Call
+                                        </a>
+                                        <a
+                                          href={`https://wa.me/${waMobile}?text=${encodeURIComponent(
+                                            `Indian Overseas Bank ${currentBranch?.name || ''} Branch:\nDear ${grp.account_name},\nYour loan repayment of ₹${fmt(
+                                              grp.totalDue
+                                            )} is due for repayment ${isCifDueToday ? 'TODAY (' + date + ')' : 'shortly'}. Please deposit the amount to keep your account standard and prevent SMA classification.\nThank you.`
+                                          )}`}
+                                          target="_blank"
+                                          rel="noopener noreferrer"
+                                          className="button"
+                                          style={{
+                                            display: 'inline-flex',
+                                            alignItems: 'center',
+                                            gap: 5,
+                                            background: '#25D366',
+                                            color: '#fff',
+                                            fontSize: 11,
+                                            padding: '4px 10px',
+                                            borderRadius: 6,
+                                            textDecoration: 'none',
+                                            fontWeight: 700,
+                                          }}
+                                          title="Send WhatsApp repayment reminder"
+                                        >
+                                          <MessageSquare size={12} /> WhatsApp
+                                        </a>
+                                        <a
+                                          href={`sms:${callMobile}?body=${encodeURIComponent(
+                                            `IOB ${currentBranch?.name || ''}: Dear ${grp.account_name}, loan repayment of ₹${fmt(
+                                              grp.totalDue
+                                            )} is due ${isCifDueToday ? 'TODAY' : 'shortly'}. Please ensure payment to keep your account standard.`
+                                          )}`}
+                                          className="secondary button"
+                                          style={{
+                                            display: 'inline-flex',
+                                            alignItems: 'center',
+                                            gap: 5,
+                                            fontSize: 11,
+                                            padding: '4px 10px',
+                                            borderRadius: 6,
+                                            textDecoration: 'none',
+                                            fontWeight: 700,
+                                          }}
+                                          title="Send SMS"
+                                        >
+                                          ✉ SMS
+                                        </a>
+                                        {(isBranch || isAdmin) && (
+                                          <button
+                                            type="button"
+                                            onClick={() => updateBorrowerMobile(grp.sol, grp.accounts[0]?.id, grp.mobile)}
+                                            style={{
+                                              background: 'none',
+                                              border: 0,
+                                              color: '#64748b',
+                                              fontSize: 11,
+                                              textDecoration: 'underline',
+                                              cursor: 'pointer',
+                                              padding: '2px 4px',
+                                            }}
+                                            title="Change mobile number"
+                                          >
+                                            Edit
+                                          </button>
+                                        )}
+                                      </>
+                                    ) : (
+                                      <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
+                                        <span style={{ fontSize: 11, color: '#94a3b8', fontStyle: 'italic' }}>No mobile recorded</span>
+                                        {(isBranch || isAdmin) && (
+                                          <button
+                                            type="button"
+                                            onClick={() => updateBorrowerMobile(grp.sol, grp.accounts[0]?.id, '')}
+                                            className="secondary"
+                                            style={{
+                                              display: 'inline-flex',
+                                              alignItems: 'center',
+                                              gap: 4,
+                                              fontSize: 11,
+                                              padding: '3px 8px',
+                                              borderRadius: 6,
+                                            }}
+                                          >
+                                            + Add Mobile Number
+                                          </button>
+                                        )}
+                                      </div>
+                                    )}
+                                  </div>
+                                </div>
+
+                                {/* CIF Totals */}
+                                <div style={{ textAlign: 'right' }}>
+                                  <div style={{ fontSize: 11, color: '#64748b', fontWeight: 600 }}>Total Repayment Due</div>
+                                  <b style={{ fontSize: 18, color: isTodayPending ? '#dc2626' : '#0f172a' }}>
+                                    ₹{fmt(grp.totalDue)}
                                   </b>
-                                  <small>{r.completed ? 'Cleared in CBS' : isDueToday ? '★ Critical today' : 'Scheduled'}</small>
-                                </td>
-                                <td data-label="Due date">
-                                  <b>{r.due_date}</b>
-                                  <small
-                                    style={{
-                                      color: isDueToday ? '#b91c1c' : isPast ? '#991b1b' : '#0369a1',
-                                      fontWeight: isDueToday ? 700 : 600,
-                                    }}
-                                  >
-                                    {dueLabel(r.due_date)}
-                                  </small>
-                                </td>
-                                <td data-label="Status">
-                                  <span className={'badge ' + (r.completed ? 'reviewed' : isDueToday ? 'clarification' : 'pending')}>
-                                    {r.completed ? 'Completed' : 'Pending'}
-                                  </span>
-                                  {r.completed && r.completedBy && (
-                                    <small style={{ display: 'block', marginTop: 2 }}>By: {r.completedBy}{r.roll_no ? ` (${r.roll_no})` : ''}</small>
+                                  {hasAnyExplicitBalance && grp.totalBalance > 0 && (
+                                    <small style={{ display: 'block', color: '#64748b', marginTop: 2 }}>
+                                      Outstanding Bal: ₹{fmt(grp.totalBalance)}
+                                    </small>
                                   )}
-                                </td>
-                                <td data-label="Actions">
-                                  <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap', alignItems: 'center' }}>
-                                    {(isBranch || isAdmin) && (
-                                      <button
-                                        type="button"
-                                        className={r.completed ? 'secondary' : ''}
-                                        disabled={busy}
-                                        onClick={() => toggleRepaymentStatus(r.sol, r.id, r.completed, r.roll_no)}
+                                </div>
+                              </div>
+
+                              {/* Sub-table of accounts under this CIF */}
+                              <div className="tablewrap" style={{ overflowX: 'auto' }}>
+                                <table style={{ margin: 0, width: '100%', background: '#fff' }}>
+                                  <thead>
+                                    <tr style={{ background: '#f8fafc', borderBottom: '1px solid #e2e8f0' }}>
+                                      {hasAnyExplicitAccountNo && <th style={{ padding: '8px 14px' }}>ACCOUNT NUMBER</th>}
+                                      <th style={{ padding: '8px 14px' }}>REPAYMENT DUE</th>
+                                      {hasAnyExplicitBalance && <th style={{ padding: '8px 14px' }}>OUTSTANDING BALANCE</th>}
+                                      <th style={{ padding: '8px 14px' }}>DUE DATE & PERIOD</th>
+                                      <th style={{ padding: '8px 14px' }}>STATUS</th>
+                                      <th style={{ padding: '8px 14px' }}>ACTIONS</th>
+                                    </tr>
+                                  </thead>
+                                  <tbody>
+                                    {grp.accounts.map((r: any) => {
+                                      const isDueToday = r.due_date === date;
+                                      const isPast = r.due_date < date;
+                                      return (
+                                        <tr
+                                          key={r.id}
+                                          style={{
+                                            background: isDueToday ? (r.completed ? '#f0fdf4' : '#fff1f2') : (r.completed ? '#f0fdf4' : '#fff'),
+                                            borderBottom: '1px solid #f1f5f9',
+                                          }}
+                                        >
+                                          {hasAnyExplicitAccountNo && (
+                                            <td data-label="Account Number" style={{ padding: '10px 14px' }}>
+                                              <span
+                                                style={{
+                                                  fontFamily: 'monospace',
+                                                  fontWeight: 700,
+                                                  fontSize: 13,
+                                                  color: '#1e293b',
+                                                  background: '#f8fafc',
+                                                  padding: '2px 6px',
+                                                  borderRadius: 4,
+                                                  border: '1px solid #e2e8f0',
+                                                }}
+                                              >
+                                                {r.account_no}
+                                              </span>
+                                            </td>
+                                          )}
+                                          <td data-label="Repayment Due" style={{ padding: '10px 14px' }}>
+                                            <b style={{ color: r.completed ? '#059669' : isDueToday ? '#dc2626' : '#b91c1c', fontSize: 14 }}>
+                                              ₹{fmt(r.due_amount)}
+                                            </b>
+                                            <small style={{ display: 'block', color: '#64748b' }}>
+                                              {r.completed ? 'Cleared in CBS' : isDueToday ? '★ Due Today' : 'Scheduled'}
+                                            </small>
+                                          </td>
+                                          {hasAnyExplicitBalance && (
+                                            <td data-label="Outstanding Balance" style={{ padding: '10px 14px' }}>
+                                              <b style={{ color: '#1e293b', fontSize: 13 }}>₹{fmt(r.balance || 0)}</b>
+                                            </td>
+                                          )}
+                                          <td data-label="Due Date" style={{ padding: '10px 14px' }}>
+                                            <b style={{ color: isDueToday ? '#b91c1c' : '#1e293b' }}>{r.due_date}</b>
+                                            <small
+                                              style={{
+                                                display: 'block',
+                                                color: isDueToday ? '#dc2626' : isPast ? '#991b1b' : '#0369a1',
+                                                fontWeight: isDueToday ? 700 : 600,
+                                              }}
+                                            >
+                                              {dueLabel(r.due_date)}
+                                            </small>
+                                          </td>
+                                          <td data-label="Status" style={{ padding: '10px 14px' }}>
+                                            <span className={'badge ' + (r.completed ? 'reviewed' : isDueToday ? 'clarification' : 'pending')}>
+                                              {r.completed ? 'Completed' : 'Pending'}
+                                            </span>
+                                            {r.completed && r.completedBy && (
+                                              <small style={{ display: 'block', marginTop: 2, fontSize: 10 }}>
+                                                By: {r.completedBy}{r.roll_no ? ` (${r.roll_no})` : ''}
+                                              </small>
+                                            )}
+                                          </td>
+                                          <td data-label="Actions" style={{ padding: '10px 14px' }}>
+                                            <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap', alignItems: 'center' }}>
+                                              {(isBranch || isAdmin) && (
+                                                <button
+                                                  type="button"
+                                                  className={r.completed ? 'secondary' : ''}
+                                                  disabled={busy}
+                                                  onClick={() => toggleRepaymentStatus(r.sol, r.id, r.completed, r.roll_no)}
+                                                  style={{
+                                                    fontSize: 11,
+                                                    padding: '5px 10px',
+                                                    background: r.completed ? undefined : isDueToday ? '#dc2626' : undefined,
+                                                    borderColor: r.completed ? undefined : isDueToday ? '#b91c1c' : undefined,
+                                                  }}
+                                                >
+                                                  {r.completed ? 'Completed · Undo' : isDueToday ? '★ Mark Paid Today' : 'Mark Complete'}
+                                                </button>
+                                              )}
+                                            </div>
+                                          </td>
+                                        </tr>
+                                      );
+                                    })}
+                                  </tbody>
+                                </table>
+                              </div>
+                            </div>
+                          );
+                        })}
+                      </div>
+                    ) : (
+                      /* VIEW 2: FLAT TABLE */
+                      <div className="tablewrap branchlist repaylist">
+                        <table>
+                          <thead>
+                            <tr>
+                              <th>BORROWER / CIF</th>
+                              {hasAnyExplicitAccountNo && <th>ACCOUNT NUMBER</th>}
+                              {hasAnyExplicitBalance && <th>OUTSTANDING BALANCE</th>}
+                              <th>REPAYMENT DUE</th>
+                              <th>DUE DATE & PERIOD</th>
+                              <th>STATUS</th>
+                              <th>FOLLOW-UP / ACTIONS</th>
+                            </tr>
+                          </thead>
+                          <tbody>
+                            {visibleAccounts.map((r: any) => {
+                              const isDueToday = r.due_date === date;
+                              const isPast = r.due_date < date;
+                              const totalCifAccounts = cifAccountCounts.get(r.cif) || 1;
+                              const rawMobile = r.mobile ? r.mobile.replace(/^91/, '') : '';
+                              const waMobile = r.mobile ? (r.mobile.startsWith('91') ? r.mobile : '91' + r.mobile) : '';
+                              const callMobile = r.mobile ? (r.mobile.startsWith('91') ? '+' + r.mobile : '+91' + r.mobile) : '';
+
+                              return (
+                                <tr
+                                  key={r.id}
+                                  style={{
+                                    background: isDueToday
+                                      ? r.completed
+                                        ? '#f0fdf4'
+                                        : '#fff1f2'
+                                      : r.completed
+                                        ? '#f0fdf4'
+                                        : '#fff',
+                                  }}
+                                >
+                                  <td data-label="Borrower / CIF">
+                                    <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+                                      <b>{r.account_name}</b>
+                                      {isDueToday && (
+                                        <span
+                                          className="badge"
+                                          style={{
+                                            background: '#dc2626',
+                                            color: '#fff',
+                                            fontSize: 10,
+                                            fontWeight: 700,
+                                            padding: '2px 6px',
+                                          }}
+                                        >
+                                          DUE TODAY
+                                        </span>
+                                      )}
+                                    </div>
+                                    <div style={{ display: 'flex', alignItems: 'center', gap: 6, flexWrap: 'wrap', marginTop: 3 }}>
+                                      <small style={{ fontWeight: 600, color: '#475569' }}>CIF: {r.cif}</small>
+                                      {totalCifAccounts > 1 && (
+                                        <span
+                                          className="badge"
+                                          style={{
+                                            background: '#fef3c7',
+                                            color: '#92400e',
+                                            fontSize: 10,
+                                            fontWeight: 700,
+                                            padding: '1px 5px',
+                                          }}
+                                        >
+                                          {totalCifAccounts} A/Cs under CIF
+                                        </span>
+                                      )}
+                                    </div>
+                                    {rawMobile && (
+                                      <div style={{ display: 'flex', alignItems: 'center', gap: 5, marginTop: 4 }}>
+                                        <span style={{ fontSize: 11, fontWeight: 700, color: '#1e293b' }}>
+                                          📱 +91 {rawMobile}
+                                        </span>
+                                        <a href={`tel:${callMobile}`} style={{ fontSize: 11, color: '#0d4b9f', fontWeight: 700 }}>
+                                          📞 Call
+                                        </a>
+                                      </div>
+                                    )}
+                                    {!isBranch && <small style={{ color: '#0369a1' }}>SOL {r.sol}</small>}
+                                    {r.roll_no && (
+                                      <div>
+                                        <span
+                                          className="badge"
+                                          style={{
+                                            background: '#fef3c7',
+                                            color: '#92400e',
+                                            fontSize: 10,
+                                            fontWeight: 700,
+                                            padding: '1px 6px',
+                                            marginTop: 3,
+                                            display: 'inline-block',
+                                          }}
+                                        >
+                                          🏅 Roll: {r.roll_no}
+                                        </span>
+                                      </div>
+                                    )}
+                                  </td>
+                                  {hasAnyExplicitAccountNo && (
+                                    <td data-label="Account number">
+                                      <span
                                         style={{
-                                          fontSize: 12,
-                                          padding: '6px 12px',
-                                          background: r.completed ? undefined : isDueToday ? '#dc2626' : undefined,
-                                          borderColor: r.completed ? undefined : isDueToday ? '#b91c1c' : undefined,
+                                          fontFamily: 'monospace',
+                                          fontWeight: 700,
+                                          fontSize: 13,
+                                          color: '#1e293b',
+                                          background: '#f8fafc',
+                                          padding: '3px 7px',
+                                          borderRadius: 5,
+                                          border: '1px solid #e2e8f0',
+                                          display: 'inline-block',
+                                          letterSpacing: '0.5px',
                                         }}
                                       >
-                                        {r.completed ? 'Completed · Undo' : isDueToday ? '★ Mark Paid Today' : 'Mark Complete'}
-                                      </button>
-                                    )}
-                                    <a
-                                      className="secondary button"
-                                      href={`https://wa.me/?text=${encodeURIComponent(
-                                        `Indian Overseas Bank ${currentBranch?.name || ''} Branch: Dear ${r.account_name}, your loan installment of ₹${fmt(
-                                          r.due_amount
-                                        )} is due for repayment ${isDueToday ? 'TODAY (' + date + ')' : 'on ' + r.due_date}. Please ensure payment today to keep your account regular and prevent SMA classification.`
-                                      )}`}
-                                      target="_blank"
-                                      rel="noopener noreferrer"
+                                        {r.account_no}
+                                      </span>
+                                    </td>
+                                  )}
+                                  {hasAnyExplicitBalance && (
+                                    <td data-label="Outstanding balance">
+                                      <b style={{ color: '#1e293b', fontSize: 14 }}>₹{fmt(r.balance || 0)}</b>
+                                    </td>
+                                  )}
+                                  <td data-label="Repayment due">
+                                    <b style={{ color: r.completed ? '#059669' : isDueToday ? '#dc2626' : '#b91c1c', fontSize: 15 }}>
+                                      ₹{fmt(r.due_amount)}
+                                    </b>
+                                    <small>{r.completed ? 'Cleared in CBS' : isDueToday ? '★ Critical today' : 'Scheduled'}</small>
+                                  </td>
+                                  <td data-label="Due date">
+                                    <b>{r.due_date}</b>
+                                    <small
                                       style={{
-                                        display: 'inline-flex',
-                                        alignItems: 'center',
-                                        gap: 4,
-                                        fontSize: 11,
-                                        padding: '6px 10px',
-                                        textDecoration: 'none',
+                                        color: isDueToday ? '#b91c1c' : isPast ? '#991b1b' : '#0369a1',
+                                        fontWeight: isDueToday ? 700 : 600,
                                       }}
                                     >
-                                      <MessageSquare size={13} color="#25D366" /> Share reminder
-                                    </a>
-                                  </div>
-                                </td>
-                              </tr>
-                            );
-                          })}
-                        </tbody>
-                      </table>
-                    </div>
+                                      {dueLabel(r.due_date)}
+                                    </small>
+                                  </td>
+                                  <td data-label="Status">
+                                    <span className={'badge ' + (r.completed ? 'reviewed' : isDueToday ? 'clarification' : 'pending')}>
+                                      {r.completed ? 'Completed' : 'Pending'}
+                                    </span>
+                                    {r.completed && r.completedBy && (
+                                      <small style={{ display: 'block', marginTop: 2 }}>By: {r.completedBy}{r.roll_no ? ` (${r.roll_no})` : ''}</small>
+                                    )}
+                                  </td>
+                                  <td data-label="Actions">
+                                    <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap', alignItems: 'center' }}>
+                                      {(isBranch || isAdmin) && (
+                                        <button
+                                          type="button"
+                                          className={r.completed ? 'secondary' : ''}
+                                          disabled={busy}
+                                          onClick={() => toggleRepaymentStatus(r.sol, r.id, r.completed, r.roll_no)}
+                                          style={{
+                                            fontSize: 12,
+                                            padding: '6px 12px',
+                                            background: r.completed ? undefined : isDueToday ? '#dc2626' : undefined,
+                                            borderColor: r.completed ? undefined : isDueToday ? '#b91c1c' : undefined,
+                                          }}
+                                        >
+                                          {r.completed ? 'Completed · Undo' : isDueToday ? '★ Mark Paid Today' : 'Mark Complete'}
+                                        </button>
+                                      )}
+                                      <a
+                                        className="secondary button"
+                                        href={`https://wa.me/${waMobile}?text=${encodeURIComponent(
+                                          `Indian Overseas Bank ${currentBranch?.name || ''} Branch: Dear ${r.account_name}, your loan installment of ₹${fmt(
+                                            r.due_amount
+                                          )} is due for repayment ${isDueToday ? 'TODAY (' + date + ')' : 'on ' + r.due_date}. Please ensure payment today to keep your account regular and prevent SMA classification.`
+                                        )}`}
+                                        target="_blank"
+                                        rel="noopener noreferrer"
+                                        style={{
+                                          display: 'inline-flex',
+                                          alignItems: 'center',
+                                          gap: 4,
+                                          fontSize: 11,
+                                          padding: '6px 10px',
+                                          textDecoration: 'none',
+                                        }}
+                                      >
+                                        <MessageSquare size={13} color="#25D366" /> WhatsApp
+                                      </a>
+                                    </div>
+                                  </td>
+                                </tr>
+                              );
+                            })}
+                          </tbody>
+                        </table>
+                      </div>
+                    )}
 
-                    {filteredAccounts.length > 50 && (
-                      <button
-                        type="button"
-                        className="secondary"
-                        style={{ marginTop: 12, width: '100%' }}
-                        onClick={() => setShowAll(!showAll)}
-                      >
-                        {showAll ? 'Show top 50 accounts' : `Show all ${filteredAccounts.length} accounts`}
-                      </button>
+                    {viewMode === 'grouped' ? (
+                      cifGroups.length > 40 && (
+                        <button
+                          type="button"
+                          className="secondary"
+                          style={{ marginTop: 12, width: '100%' }}
+                          onClick={() => setShowAll(!showAll)}
+                        >
+                          {showAll ? 'Show top 40 CIF groups' : `Show all ${cifGroups.length} CIF groups (${filteredAccounts.length} accounts)`}
+                        </button>
+                      )
+                    ) : (
+                      filteredAccounts.length > 50 && (
+                        <button
+                          type="button"
+                          className="secondary"
+                          style={{ marginTop: 12, width: '100%' }}
+                          onClick={() => setShowAll(!showAll)}
+                        >
+                          {showAll ? 'Show top 50 accounts' : `Show all ${filteredAccounts.length} accounts`}
+                        </button>
+                      )
                     )}
                   </>
                 ) : (
@@ -1685,17 +2232,12 @@ export default function SmaPortal() {
                   className="secondary"
                   onClick={() => {
                     const sample =
-                      'branch_code,cif,account_no,account_name,balance,due_amount,due_date\n0174,CIF1002341,01740100001234,Senthil Nathan K,1850000,185000,' +
-                      date +
-                      '\n0174,CIF1002341,01740200005678,Senthil Nathan K,450000,45000,' +
-                      date +
-                      '\n0332,CIF1005892,03320100009812,Meenakshi Traders,3200000,420000,' +
-                      date +
-                      '\n0376,CIF2001452,03760200004123,Palanisamy Murugan,2400000,650000,' +
-                      addDays(date, 1) +
-                      '\n0175,CIF3004519,01750100007781,Lakshmi Cotton Mills,1600000,320000,' +
-                      addDays(date, 2) +
-                      '\n';
+                      'branch_code,cif,account_no,account_name,balance,due_amount,due_date,mobile\n' +
+                      `0174,CIF1002341,,Senthil Nathan K,1850000,185000,${date},9842101234\n` +
+                      `0174,CIF1002341,,Senthil Nathan K,450000,45000,${date},9842101234\n` +
+                      `0332,CIF1005892,,Meenakshi Traders,3200000,420000,${date},9443218765\n` +
+                      `0376,CIF2001452,,Palanisamy Murugan,2400000,650000,${addDays(date, 1)},9789456123\n` +
+                      `0175,CIF3004519,,Lakshmi Cotton Mills,1600000,320000,${addDays(date, 2)},9500123489\n`;
                     downloadCsv('IOB_repayments_template.csv', sample);
                   }}
                   style={{ display: 'inline-flex', alignItems: 'center', gap: 6 }}
@@ -1716,10 +2258,8 @@ export default function SmaPortal() {
               >
                 <Upload size={36} color="#64748b" style={{ margin: '0 auto 10px' }} />
                 <h3>Select Repayments CSV File</h3>
-                <p style={{ color: '#64748b', fontSize: 13, maxWidth: 640, margin: '0 auto 16px' }}>
-                  Columns: <code>branch_code</code> (SOL), <code>cif</code>, <code>account_no</code> (Account Number),{' '}
-                  <code>account_name</code>, <code>balance</code> (Outstanding Balance), <code>due_amount</code>,{' '}
-                  <code>due_date</code> (YYYY-MM-DD or DD/MM/YYYY). Each CIF can have multiple distinct account numbers with their own balance and amount due.
+                <p style={{ color: '#64748b', fontSize: 13, maxWidth: 680, margin: '0 auto 16px' }}>
+                  Columns: <code>branch_code</code> (SOL), <code>cif</code>, <code>account_name</code>, <code>due_amount</code>, <code>due_date</code> (YYYY-MM-DD or DD/MM/YYYY), <code>mobile</code> (borrower contact for 1-click Call & WhatsApp), <code>balance</code> (optional outstanding balance), <code>account_no</code> (optional specific CBS loan account number).
                 </p>
                 <input
                   type="file"
@@ -1952,7 +2492,7 @@ export default function SmaPortal() {
           align-items: center;
           gap: 20px;
           white-space: nowrap;
-          animation: tickerScroll 115s linear infinite;
+          animation: tickerScroll 280s linear infinite;
         }
         .tickertape-wrap:hover .tickertape-content,
         .tickertape-wrap:active .tickertape-content,
@@ -2039,7 +2579,7 @@ export default function SmaPortal() {
             -webkit-overflow-scrolling: touch !important;
           }
           .tickertape-content {
-            animation: tickerScroll 140s linear infinite !important;
+            animation: tickerScroll 340s linear infinite !important;
             gap: 12px !important;
           }
           .tickertape-item {

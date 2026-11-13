@@ -49,6 +49,7 @@ export default function FundingPortal() {
   const [busy, setBusy] = useState(false);
   const [showAll, setShowAll] = useState(false);
   const [tickerPaused, setTickerPaused] = useState(false);
+  const [tickerSpeed, setTickerSpeed] = useState<'leisurely' | 'slow' | 'normal'>('leisurely');
   const [fundingAmountInput, setFundingAmountInput] = useState<{ [id: string]: string }>({});
   const [rollNoInput, setRollNoInput] = useState<{ [id: string]: string }>({});
   const [selectedCertRoll, setSelectedCertRoll] = useState<string | null>(null);
@@ -452,6 +453,12 @@ export default function FundingPortal() {
     });
   }
 
+  const activeTickerItems = tickerItems.slice(0, 25);
+  const tickerSecs = Math.max(
+    180,
+    activeTickerItems.length * (tickerSpeed === 'leisurely' ? 22 : tickerSpeed === 'slow' ? 35 : 12)
+  );
+
   return (
     <div className={'shell role-' + data.user.role}>
       <aside>
@@ -642,22 +649,43 @@ export default function FundingPortal() {
               <div style={{ display: 'inline-flex', alignItems: 'center', gap: 6 }}>
                 <span className="live-dot" /> REGIONAL LIVE PULSE
               </div>
-              <button
-                type="button"
-                className="tickertape-pause-btn"
-                onClick={() => setTickerPaused(!tickerPaused)}
-                title={tickerPaused ? 'Click to resume marquee' : 'Click to pause marquee'}
-              >
-                {tickerPaused ? <Play size={11} /> : <Pause size={11} />}
-                <span>{tickerPaused ? 'Resume' : 'Pause'}</span>
-              </button>
+              <div style={{ display: 'inline-flex', alignItems: 'center', gap: 6 }}>
+                <button
+                  type="button"
+                  className="tickertape-pause-btn"
+                  onClick={() =>
+                    setTickerSpeed(
+                      tickerSpeed === 'leisurely'
+                        ? 'slow'
+                        : tickerSpeed === 'slow'
+                          ? 'normal'
+                          : 'leisurely'
+                    )
+                  }
+                  title="Change marquee speed"
+                >
+                  {tickerSpeed === 'leisurely' ? '🐢 Slow (22s)' : tickerSpeed === 'slow' ? '🐌 Extra Slow (35s)' : '🐇 Normal (12s)'}
+                </button>
+                <button
+                  type="button"
+                  className="tickertape-pause-btn"
+                  onClick={() => setTickerPaused(!tickerPaused)}
+                  title={tickerPaused ? 'Click to resume marquee' : 'Click to pause marquee'}
+                >
+                  {tickerPaused ? <Play size={11} /> : <Pause size={11} />}
+                  <span>{tickerPaused ? 'Resume' : 'Pause'}</span>
+                </button>
+              </div>
             </div>
             <div className="tickertape-track">
               <div
                 className="tickertape-content"
-                style={tickerPaused ? { animationPlayState: 'paused' } : undefined}
+                style={{
+                  animationDuration: `${tickerSecs}s`,
+                  ...(tickerPaused ? { animationPlayState: 'paused' } : {}),
+                }}
               >
-                {tickerItems.concat(tickerItems).map((item, idx) => (
+                {activeTickerItems.concat(activeTickerItems).map((item, idx) => (
                   <button
                     key={`${item.id}-${idx}`}
                     type="button"
@@ -1476,7 +1504,7 @@ export default function FundingPortal() {
           align-items: center;
           gap: 20px;
           white-space: nowrap;
-          animation: tickerScroll 115s linear infinite;
+          animation: tickerScroll 280s linear infinite;
         }
         .tickertape-wrap:hover .tickertape-content,
         .tickertape-wrap:active .tickertape-content,
@@ -1563,7 +1591,7 @@ export default function FundingPortal() {
             -webkit-overflow-scrolling: touch !important;
           }
           .tickertape-content {
-            animation: tickerScroll 140s linear infinite !important;
+            animation: tickerScroll 340s linear infinite !important;
             gap: 12px !important;
           }
           .tickertape-item {
