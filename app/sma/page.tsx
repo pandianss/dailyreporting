@@ -575,9 +575,10 @@ export default function SmaPortal() {
     const todayAttended = todayItems.filter(
       (r: any) => r.completed || (r.history && r.history.length > 0) || r.followup_notes
     );
+    const branchContact = (data.contacts || []).find((c: any) => c.sol === b.sol);
     const branchGrant = (data.grants || []).find((g: any) => g.sol === b.sol && g.role === 'branch');
-    const headPhone = loginInfo?.phone || branchGrant?.phone || b.phone || '';
-    const headName = loginInfo?.name || branchGrant?.name || b.name + ' Branch Head';
+    const headPhone = branchContact?.phone || loginInfo?.phone || branchGrant?.phone || b.phone || '';
+    const headName = branchContact?.name || loginInfo?.name || branchGrant?.name || b.name + ' Branch Head';
 
     return {
       branch: b,

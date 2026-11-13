@@ -353,10 +353,17 @@ export default function FundingPortal() {
     const fAmt = fList.reduce((acc, a) => acc + Number(a.funded_amount || 0), 0);
     const pct = branchList.length ? Math.round((cCount / branchList.length) * 100) : 0;
     const isLoggedIn = loggedInSols.has(b.sol);
+    const branchContact = (data.contacts || []).find((c: any) => c.sol === b.sol);
+    const branchGrant = (data.grants || []).find((g: any) => g.sol === b.sol && g.role === 'branch');
+    const loginInfo = branchLogins.find((l: any) => l.sol === b.sol);
+    const headPhone = branchContact?.phone || loginInfo?.phone || branchGrant?.phone || b.phone || '';
+    const headName = branchContact?.name || loginInfo?.name || branchGrant?.name || b.name + ' Branch Head';
 
     return {
       branch: b,
       isLoggedIn,
+      headPhone,
+      headName,
       branchList,
       fList,
       pList,
@@ -884,10 +891,10 @@ export default function FundingPortal() {
             <>
               {/* Branch Selector (if admin/reviewer/srm) */}
               {!isBranch && (
-                <div className="panel branchpicker">
-                  <label>
-                    Select Branch
-                    <select value={sol} onChange={(e) => setSol(e.target.value)}>
+                <div className="panel branchpicker" style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', flexWrap: 'wrap', gap: 12 }}>
+                  <label style={{ display: 'flex', alignItems: 'center', gap: 8, fontWeight: 600, fontSize: 13, margin: 0 }}>
+                    Select Branch:
+                    <select value={sol} onChange={(e) => setSol(e.target.value)} style={{ padding: '8px 12px', borderRadius: 8, border: '1px solid #cbd5e1', fontSize: 13 }}>
                       <option value="">All 56 Branches (Region Overview)</option>
                       {data.branches.map((b: any) => (
                         <option key={b.sol} value={b.sol}>
@@ -896,6 +903,30 @@ export default function FundingPortal() {
                       ))}
                     </select>
                   </label>
+                  {headContact?.phone && (
+                    <a
+                      className="button"
+                      style={{
+                        display: 'inline-flex',
+                        alignItems: 'center',
+                        gap: 6,
+                        background: '#25D366',
+                        color: '#fff',
+                        padding: '6px 12px',
+                        borderRadius: 6,
+                        fontSize: 12,
+                        textDecoration: 'none',
+                        fontWeight: 600,
+                      }}
+                      href={`https://wa.me/${headContact.phone}?text=${encodeURIComponent(
+                        `IOB Low Balance Funding: Dear Branch Head (${currentBranch?.name}), please review pending low-balance accounts in the funding portal for SOL ${sol}. Immediate funding follow-up required.`
+                      )}`}
+                      target="_blank"
+                      rel="noopener noreferrer"
+                    >
+                      <MessageSquare size={13} /> WhatsApp Branch Head ({headContact.name || 'Head'})
+                    </a>
+                  )}
                 </div>
               )}
 
@@ -1340,6 +1371,22 @@ export default function FundingPortal() {
                           <td>
                             <b>{m.branch.name}</b>
                             <small>SOL {m.branch.sol}</small>
+                            <div style={{ fontSize: 11, color: '#475569', marginTop: 2, display: 'flex', alignItems: 'center', gap: 6, flexWrap: 'wrap' }}>
+                              <span>{m.headName}</span>
+                              {m.headPhone && (
+                                <a
+                                  href={`https://wa.me/${m.headPhone}?text=${encodeURIComponent(
+                                    `IOB Low Balance Funding: Dear Branch Head (${m.branch.name}), please review pending low-balance accounts in the funding portal (${m.pList.length} pending accounts).`
+                                  )}`}
+                                  target="_blank"
+                                  rel="noopener noreferrer"
+                                  style={{ color: '#16a34a', fontWeight: 600, display: 'inline-flex', alignItems: 'center', gap: 2, textDecoration: 'none' }}
+                                  title={`WhatsApp ${m.headName}`}
+                                >
+                                  <MessageSquare size={11} /> +{m.headPhone}
+                                </a>
+                              )}
+                            </div>
                             <div>
                               {m.isLoggedIn ? (
                                 <span

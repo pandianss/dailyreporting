@@ -453,11 +453,11 @@ export async function handlePortalGet(
       auth.user.role === 'branch'
         ? await store.list('funding:' + auth.user.sol + ':')
         : await store.list('funding:');
-    const contacts = auth.user.role === 'admin' ? await store.list('contact:') : [];
-    const grants =
-      auth.user.role === 'admin'
-        ? (await store.list('account:')).map(({ hash, salt, ...a }: any) => a)
-        : [];
+    const canSeeDirectory = ['admin', 'reviewer', 'srm', 'gm'].includes(auth.user.role);
+    const contacts = canSeeDirectory ? await store.list('contact:') : [];
+    const grants = canSeeDirectory
+      ? (await store.list('account:')).map(({ hash, salt, ...a }: any) => a)
+      : [];
     const jobs = auth.user.role === 'admin' ? await store.list('out:') : [];
     const logins = await store.list('login:' + date + ':');
 
