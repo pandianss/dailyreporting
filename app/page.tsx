@@ -258,92 +258,190 @@ return <div className={"shell role-"+data.user.role}><aside><div className="bran
   const totalSancAmt = data.subs.reduce((acc:number,s:any)=>acc+Number(s.values.sanction_retail_amount||0)+Number(s.values.sanction_agri_amount||0)+Number(s.values.sanction_msme_amount||0),0);
   const totalSancCnt = data.subs.reduce((acc:number,s:any)=>acc+Number(s.values.sanction_retail_count||0)+Number(s.values.sanction_agri_count||0)+Number(s.values.sanction_msme_count||0),0);
 
+  const sancRCount = data.subs.reduce((acc:number,s:any)=>acc+Number(s.values.sanction_retail_count||0),0);
+  const sancRAmt = data.subs.reduce((acc:number,s:any)=>acc+Number(s.values.sanction_retail_amount||0),0);
+  const sancACount = data.subs.reduce((acc:number,s:any)=>acc+Number(s.values.sanction_agri_count||0),0);
+  const sancAAmt = data.subs.reduce((acc:number,s:any)=>acc+Number(s.values.sanction_agri_amount||0),0);
+  const sancMCount = data.subs.reduce((acc:number,s:any)=>acc+Number(s.values.sanction_msme_count||0),0);
+  const sancMAmt = data.subs.reduce((acc:number,s:any)=>acc+Number(s.values.sanction_msme_amount||0),0);
+
   const totalSmaAmt = data.subs.reduce((acc:number,s:any)=>acc+Number(s.values.sma0_amount||0)+Number(s.values.sma1_amount||0)+Number(s.values.sma2_amount||0),0);
   const totalSmaCnt = data.subs.reduce((acc:number,s:any)=>acc+Number(s.values.sma0_count||0)+Number(s.values.sma1_count||0)+Number(s.values.sma2_count||0),0);
 
+  const totalSma0Amt = data.subs.reduce((acc:number,s:any)=>acc+Number(s.values.sma0_amount||0),0);
+  const totalSma1Amt = data.subs.reduce((acc:number,s:any)=>acc+Number(s.values.sma1_amount||0),0);
+  const totalSma2Amt = data.subs.reduce((acc:number,s:any)=>acc+Number(s.values.sma2_amount||0),0);
+
+  const sbOpenedToday = data.subs.reduce((acc:number,s:any)=>acc+Number(s.values.sb_opened||0),0);
+  const sbFundedToday = data.subs.reduce((acc:number,s:any)=>acc+Number(s.values.sb_funded||0),0);
+  const cdOpenedToday = data.subs.reduce((acc:number,s:any)=>acc+Number(s.values.cd_opened||0),0);
+  const cdFundedToday = data.subs.reduce((acc:number,s:any)=>acc+Number(s.values.cd_funded||0),0);
+
+  const sbMtdOpened = (data.pub ? data.pub.rows.reduce((acc:number,r:any)=>acc+Number(r.sb_mtd_opened||0),0) : 0) + sbOpenedToday;
+  const cdMtdOpened = (data.pub ? data.pub.rows.reduce((acc:number,r:any)=>acc+Number(r.cd_mtd_opened||0),0) : 0) + cdOpenedToday;
+
+  const nilOpeningsBranches = data.subs.filter((s:any)=>Number(s.values.sb_opened||0)===0 && Number(s.values.cd_opened||0)===0).length;
+
   return <>
-    {/* ROW 1: CORE WORKSPACE METRICS */}
+    {/* ROW 1: TODAY'S GROWTH / MOVEMENT & ACCOUNT OPENING - SB, CD, TD 100% SEPARATE & LPC */}
     <div className="stats">
-      <div>
-        <span>Reports submitted</span>
-        <strong>{data.subs.length}<em> / {data.branches.length}</em></strong>
-        <small>{data.branches.length-data.subs.length} branches pending submission</small>
+      <div
+        style={{cursor:'pointer',border:filter==='SB Degrowth Today'?'2px solid #0d4b9f':'1px solid #e6eaf0'}}
+        onClick={()=>setFilter(filter==='SB Degrowth Today'?'All branches':'SB Degrowth Today')}
+        title="Click to filter branches by SB degrowth today"
+      >
+        <div style={{display:'flex',justifyContent:'space-between',alignItems:'baseline'}}>
+          <span>SB Growth & Accounts Today</span>
+          <span style={{fontSize:11,fontWeight:700,color:sbToday>=0?'#059669':'#dc2626',background:sbToday>=0?'#ecfdf5':'#fef2f2',padding:'1px 6px',borderRadius:4}}>
+            {sbToday>=0?'▲ ACCRETION':'▼ DEGROWTH'}
+          </span>
+        </div>
+        <strong style={{color:sbToday>=0?'#059669':'#dc2626'}}>₹{fmt(sbToday)}</strong>
+        <div style={{margin:'6px 0 6px',padding:'6px 10px',background:'#eff6ff',border:'1px solid #bfdbfe',borderRadius:6,display:'flex',justifyContent:'space-between',alignItems:'center'}}>
+          <span style={{fontSize:11,fontWeight:700,color:'#1e40af'}}>SB Opened Today:</span>
+          <span style={{fontSize:13,fontWeight:800,color:'#1d4ed8'}}>+{sbOpenedToday} <span style={{fontSize:11,fontWeight:600,color:'#1e40af'}}>({sbFundedToday} funded)</span></span>
+        </div>
+        <small>Confirmed MTD: <b>₹{fmt(cumSb)}</b> &bull; MTD Opened: <b>{sbMtdOpened}</b></small>
       </div>
-      <div>
-        <span>Total Deposit Movement Today (SB+CD+TD)</span>
-        <strong style={{color:totalDepToday>=0?'#059669':'#dc2626'}}>₹{fmt(totalDepToday)}</strong>
-        <small>SB: ₹{fmt(sbToday)} · CD: ₹{fmt(cdToday)} · TD: ₹{fmt(tdToday)}</small>
+
+      <div
+        style={{cursor:'pointer',border:filter==='CD Degrowth Today'?'2px solid #0d4b9f':'1px solid #e6eaf0'}}
+        onClick={()=>setFilter(filter==='CD Degrowth Today'?'All branches':'CD Degrowth Today')}
+        title="Click to filter branches by CD degrowth today"
+      >
+        <div style={{display:'flex',justifyContent:'space-between',alignItems:'baseline'}}>
+          <span>CD Growth & Accounts Today</span>
+          <span style={{fontSize:11,fontWeight:700,color:cdToday>=0?'#059669':'#dc2626',background:cdToday>=0?'#ecfdf5':'#fef2f2',padding:'1px 6px',borderRadius:4}}>
+            {cdToday>=0?'▲ ACCRETION':'▼ DEGROWTH'}
+          </span>
+        </div>
+        <strong style={{color:cdToday>=0?'#059669':'#dc2626'}}>₹{fmt(cdToday)}</strong>
+        <div style={{margin:'6px 0 6px',padding:'6px 10px',background:'#f8fafc',border:'1px solid #cbd5e1',borderRadius:6,display:'flex',justifyContent:'space-between',alignItems:'center'}}>
+          <span style={{fontSize:11,fontWeight:700,color:'#334155'}}>CD Opened Today:</span>
+          <span style={{fontSize:13,fontWeight:800,color:'#0f172a'}}>+{cdOpenedToday} <span style={{fontSize:11,fontWeight:600,color:'#475569'}}>({cdFundedToday} funded)</span></span>
+        </div>
+        <small>Confirmed MTD: <b>₹{fmt(cumCd)}</b> &bull; MTD Opened: <b>{cdMtdOpened}</b></small>
       </div>
-      <div>
-        <span>LPC Forwarded Cases Today</span>
-        <strong style={{color:'#0284c7'}}>{totalLpcCnt} proposals</strong>
-        <small style={{fontWeight:600}}>₹{fmt(totalLpcAmt)} &bull; R: ₹{fmt(lpcRAmt)} · A: ₹{fmt(lpcAAmt)} · M: ₹{fmt(lpcMAmt)}</small>
+
+      <div
+        style={{cursor:'pointer',border:filter==='TD Degrowth Today'?'2px solid #0d4b9f':'1px solid #e6eaf0'}}
+        onClick={()=>setFilter(filter==='TD Degrowth Today'?'All branches':'TD Degrowth Today')}
+        title="Click to filter branches by TD degrowth today"
+      >
+        <div style={{display:'flex',justifyContent:'space-between',alignItems:'baseline'}}>
+          <span>TD Growth Today</span>
+          <span style={{fontSize:11,fontWeight:700,color:tdToday>=0?'#059669':'#dc2626',background:tdToday>=0?'#ecfdf5':'#fef2f2',padding:'1px 6px',borderRadius:4}}>
+            {tdToday>=0?'▲ MOBILIZATION':'▼ DEGROWTH'}
+          </span>
+        </div>
+        <strong style={{color:tdToday>=0?'#059669':'#dc2626'}}>₹{fmt(tdToday)}</strong>
+        <small style={{marginTop:8,display:'block'}}>Term Deposit mobilization today &bull; {data.subs.filter((s:any)=>Number(s.values.td_growth_today||0)>0).length} branches positive</small>
       </div>
-      <div>
-        <span>Branch Sanctions & SMA Resolved</span>
-        <strong style={{color:'#059669'}}>₹{fmt(totalSancAmt)}</strong>
-        <small>{totalSancCnt} sanctions &bull; SMA Elim: ₹{fmt(totalSmaAmt)} ({totalSmaCnt} accts)</small>
+
+      <div
+        style={{cursor:'pointer',border:filter==='LPC Forwarded Cases'?'2px solid #0284c7':'1px solid #e6eaf0'}}
+        onClick={()=>setFilter(filter==='LPC Forwarded Cases'?'All branches':'LPC Forwarded Cases')}
+        title="Click to filter branches with LPC forwarded cases today"
+      >
+        <div style={{display:'flex',justifyContent:'space-between',alignItems:'baseline'}}>
+          <span>Today’s LPC Forwarded</span>
+          <span style={{fontSize:11,fontWeight:700,color:'#0284c7',background:'#f0f9ff',padding:'1px 6px',borderRadius:4}}>
+            ₹{fmt(totalLpcAmt)}
+          </span>
+        </div>
+        <strong style={{color:'#0284c7'}}>{totalLpcCnt} <em style={{fontSize:17,color:'#64748b',fontWeight:500}}>proposals</em></strong>
+        <small style={{fontWeight:600,color:'#0369a1',marginTop:6,display:'block'}}>Retail: {lpcRCount} (₹{fmt(lpcRAmt)}) · Agri: {lpcACount} (₹{fmt(lpcAAmt)}) · MSME: {lpcMCount} (₹{fmt(lpcMAmt)})</small>
       </div>
     </div>
 
-    {/* ROW 2: SB, CD, TD SEPARATE GROWTH & NEGATIVE BRANCHES DESK */}
+    {/* ROW 2: NEGATIVE BRANCHES COUNT (SB, CD, TD SEPARATELY) & ACCOUNTS OPENED / SUBMISSIONS */}
     <div className="stats" style={{marginTop:-8}}>
-      <div>
-        <div style={{display:'flex',justifyContent:'space-between',alignItems:'baseline'}}>
-          <span>SB Position & Negative Branches</span>
-          <span style={{fontSize:11,fontWeight:700,color:sbToday>=0?'#059669':'#dc2626',background:sbToday>=0?'#ecfdf5':'#fef2f2',padding:'2px 6px',borderRadius:4}}>
-            Today: ₹{fmt(sbToday)}
-          </span>
-        </div>
-        <strong style={{color:'#dc2626'}}>{sbNegCum} <em style={{fontSize:16,color:'#64748b'}}>/ 56</em></strong>
+      <div
+        style={{cursor:'pointer',border:filter==='SB Negative (MTD)'?'2px solid #dc2626':'1px solid #e6eaf0'}}
+        onClick={()=>setFilter(filter==='SB Negative (MTD)'?'All branches':'SB Negative (MTD)')}
+        title="Click to filter branches negative in SB (MTD)"
+      >
+        <span>SB Negative Branches</span>
+        <strong style={{color:sbNegCum>0?'#dc2626':'#059669'}}>{sbNegCum} <em style={{fontSize:17,color:'#64748b'}}>/ {data.branches.length}</em></strong>
         <small style={{lineHeight:1.6}}>
-          <b style={{color:'#dc2626'}}>{sbNegCum} branches negative (MTD)</b> &bull; {sbNegToday} degrowth today<br/>
-          Confirmed MTD: ₹{fmt(cumSb)}
+          <b style={{color:'#dc2626'}}>{sbNegCum} branches negative (MTD)</b> &bull; {sbNegToday} degrowth today
         </small>
       </div>
-      <div>
-        <div style={{display:'flex',justifyContent:'space-between',alignItems:'baseline'}}>
-          <span>CD Position & Negative Branches</span>
-          <span style={{fontSize:11,fontWeight:700,color:cdToday>=0?'#059669':'#dc2626',background:cdToday>=0?'#ecfdf5':'#fef2f2',padding:'2px 6px',borderRadius:4}}>
-            Today: ₹{fmt(cdToday)}
-          </span>
-        </div>
-        <strong style={{color:'#dc2626'}}>{cdNegCum} <em style={{fontSize:16,color:'#64748b'}}>/ 56</em></strong>
+
+      <div
+        style={{cursor:'pointer',border:filter==='CD Negative (MTD)'?'2px solid #dc2626':'1px solid #e6eaf0'}}
+        onClick={()=>setFilter(filter==='CD Negative (MTD)'?'All branches':'CD Negative (MTD)')}
+        title="Click to filter branches negative in CD (MTD)"
+      >
+        <span>CD Negative Branches</span>
+        <strong style={{color:cdNegCum>0?'#dc2626':'#059669'}}>{cdNegCum} <em style={{fontSize:17,color:'#64748b'}}>/ {data.branches.length}</em></strong>
         <small style={{lineHeight:1.6}}>
-          <b style={{color:'#dc2626'}}>{cdNegCum} branches negative (MTD)</b> &bull; {cdNegToday} degrowth today<br/>
-          Confirmed MTD: ₹{fmt(cumCd)}
+          <b style={{color:'#dc2626'}}>{cdNegCum} branches negative (MTD)</b> &bull; {cdNegToday} degrowth today
         </small>
       </div>
-      <div>
-        <div style={{display:'flex',justifyContent:'space-between',alignItems:'baseline'}}>
-          <span>TD Position & Negative Branches</span>
-          <span style={{fontSize:11,fontWeight:700,color:tdToday>=0?'#059669':'#dc2626',background:tdToday>=0?'#ecfdf5':'#fef2f2',padding:'2px 6px',borderRadius:4}}>
-            Today: ₹{fmt(tdToday)}
-          </span>
-        </div>
-        <strong style={{color:tdNegToday>0?'#dc2626':'#059669'}}>{tdNegToday} <em style={{fontSize:16,color:'#64748b'}}>degrowth</em></strong>
+
+      <div
+        style={{cursor:'pointer',border:filter==='TD Degrowth Today'?'2px solid #dc2626':'1px solid #e6eaf0'}}
+        onClick={()=>setFilter(filter==='TD Degrowth Today'?'All branches':'TD Degrowth Today')}
+        title="Click to filter branches with TD degrowth today"
+      >
+        <span>TD Degrowth Branches</span>
+        <strong style={{color:tdNegToday>0?'#dc2626':'#059669'}}>{tdNegToday} <em style={{fontSize:17,color:'#64748b'}}>branches</em></strong>
         <small style={{lineHeight:1.6}}>
-          <b style={{color:tdNegToday>0?'#dc2626':'#059669'}}>{tdNegToday} branches degrowth today</b> &bull; {data.subs.length-tdNegToday} positive/nil<br/>
-          Term Deposit mobilization today: ₹{fmt(tdToday)}
+          <b style={{color:tdNegToday>0?'#dc2626':'#059669'}}>{tdNegToday} branches degrowth today</b> &bull; {data.subs.length-tdNegToday} positive/nil
         </small>
       </div>
-      <div>
+
+      <div
+        style={{cursor:'pointer',border:filter==='NIL openings'?'2px solid #ea580c':filter==='Pending'?'2px solid #0d4b9f':'1px solid #e6eaf0'}}
+        onClick={()=>setFilter(filter==='NIL openings'?'All branches':'NIL openings')}
+        title="Click to filter branches by NIL account openings"
+      >
         <div style={{display:'flex',justifyContent:'space-between',alignItems:'baseline'}}>
-          <span>LPC Proposals Breakdown</span>
-          <span style={{fontSize:11,fontWeight:700,color:'#0284c7',background:'#f0f9ff',padding:'2px 6px',borderRadius:4}}>
-            {totalLpcCnt} cases
+          <span>Total Accounts Opened Today</span>
+          <span style={{fontSize:10,fontWeight:700,color:'#ea580c',background:'#fff7ed',padding:'1px 5px',borderRadius:4}}>
+            {nilOpeningsBranches} NIL OPENINGS
           </span>
         </div>
-        <strong style={{color:'#0284c7'}}>₹{fmt(totalLpcAmt)}</strong>
+        <strong style={{color:'#0d4b9f'}}>+{sbOpenedToday + cdOpenedToday} <em style={{fontSize:17,color:'#64748b',fontWeight:500}}>accounts</em></strong>
         <small style={{lineHeight:1.6}}>
-          Retail: <b>{lpcRCount} cases</b> (₹{fmt(lpcRAmt)}) &bull; Agri: <b>{lpcACount}</b> (₹{fmt(lpcAAmt)})<br/>
-          MSME: <b>{lpcMCount} cases</b> (₹{fmt(lpcMAmt)})
+          <b>SB: +{sbOpenedToday}</b> ({sbFundedToday} funded) &bull; <b>CD: +{cdOpenedToday}</b> ({cdFundedToday} funded)<br/>
+          {data.subs.length} / {data.branches.length} reports submitted ({data.branches.length-data.subs.length} pending)
         </small>
+      </div>
+    </div>
+
+    {/* ROW 3: SANCTIONS & SMA ELIMINATIONS (LENDING & RECOVERY) */}
+    <div className="stats" style={{marginTop:-8,gridTemplateColumns:'repeat(auto-fit, minmax(280px, 1fr))'}}>
+      <div
+        style={{cursor:'pointer',border:filter==='Sanctions Today'?'2px solid #059669':'1px solid #e6eaf0'}}
+        onClick={()=>setFilter(filter==='Sanctions Today'?'All branches':'Sanctions Today')}
+        title="Click to filter branches with loan sanctions today"
+      >
+        <div style={{display:'flex',justifyContent:'space-between',alignItems:'baseline'}}>
+          <span>Today’s Total Sanctions</span>
+          <span style={{fontSize:11,fontWeight:700,color:'#059669',background:'#ecfdf5',padding:'1px 6px',borderRadius:4}}>
+            {totalSancCnt} LOANS
+          </span>
+        </div>
+        <strong style={{color:'#059669'}}>₹{fmt(totalSancAmt)}</strong>
+        <small>Retail: {sancRCount} (₹{fmt(sancRAmt)}) · Agri: {sancACount} (₹{fmt(sancAAmt)}) · MSME: {sancMCount} (₹{fmt(sancMAmt)})</small>
+      </div>
+
+      <div>
+        <div style={{display:'flex',justifyContent:'space-between',alignItems:'baseline'}}>
+          <span>Today’s SMA Eliminations</span>
+          <span style={{fontSize:11,fontWeight:700,color:'#059669',background:'#ecfdf5',padding:'1px 6px',borderRadius:4}}>
+            {totalSmaCnt} ACCOUNTS
+          </span>
+        </div>
+        <strong style={{color:'#059669'}}>₹{fmt(totalSmaAmt)}</strong>
+        <small>SMA 0: ₹{fmt(totalSma0Amt)} &bull; SMA 1: ₹{fmt(totalSma1Amt)} &bull; SMA 2: ₹{fmt(totalSma2Amt)}</small>
       </div>
     </div>
   </>;
 })()}
-<div className="panel"><div className="paneltop"><div><h2>{tab==='Review desk'?'Review queue':'Branch performance'}</h2><p>{data.pub?'Published v'+data.pub.version+' · Amounts in ₹ · '+data.pub.baseline:'Confirmed positions will appear after publication.'}</p></div><button className="secondary" onClick={()=>download('IOB_summary_'+date+'.csv','SOL,Branch,Status,SB opened today,CD opened today,SB growth today ₹,CD growth today ₹,TD growth today ₹,Retail sanctions today accts,Retail sanctions today ₹,Agri sanctions today accts,Agri sanctions today ₹,MSME sanctions today accts,MSME sanctions today ₹,Retail LPC forwarded accts,Retail LPC forwarded ₹,Agri LPC forwarded accts,Agri LPC forwarded ₹,MSME LPC forwarded accts,MSME LPC forwarded ₹,SMA0 elim accts,SMA0 elim ₹,SMA1 elim accts,SMA1 elim ₹,SMA2 elim accts,SMA2 elim ₹,Total SMA elim ₹\n'+data.branches.map((b:any)=>{const s=data.subs.find((x:any)=>x.sol===b.sol);const totalSmaElim=Number(s?.values?.sma0_amount||0)+Number(s?.values?.sma1_amount||0)+Number(s?.values?.sma2_amount||0);return [b.sol,b.name,status(b),s?.values.sb_opened??'',s?.values.cd_opened??'',s?.values.sb_growth_today??'',s?.values.cd_growth_today??'',s?.values.td_growth_today??'',s?.values.sanction_retail_count??'',s?.values.sanction_retail_amount??'',s?.values.sanction_agri_count??'',s?.values.sanction_agri_amount??'',s?.values.sanction_msme_count??'',s?.values.sanction_msme_amount??'',s?.values.lpc_retail_count??'',s?.values.lpc_retail_amount??'',s?.values.lpc_agri_count??'',s?.values.lpc_agri_amount??'',s?.values.lpc_msme_count??'',s?.values.lpc_msme_amount??'',s?.values.sma0_count??'',s?.values.sma0_amount??'',s?.values.sma1_count??'',s?.values.sma1_amount??'',s?.values.sma2_count??'',s?.values.sma2_amount??'',totalSmaElim||''].join(',')}).join('\n'))}><Download size={16}/>Export summary</button></div><div className="toolbar"><input placeholder="Search branch or SOL…" value={search} onChange={e=>setSearch(e.target.value)}/><select value={filter} onChange={e=>setFilter(e.target.value)}>{['All branches','Pending','Submitted','Reviewed','Clarification','SB Negative (MTD)','CD Negative (MTD)','SB Degrowth Today','CD Degrowth Today','TD Degrowth Today','LPC Forwarded Cases','Sanctions Today','NIL openings'].map(x=><option key={x}>{x}</option>)}</select></div><div className="tablewrap branchlist"><table><thead><tr><th>BRANCH</th><th>SB POSITION</th><th>CD POSITION</th><th>TD TODAY</th><th>LPC FORWARDED TODAY</th><th>BRANCH SANCTIONS</th><th>SMA ELIM</th><th>REPORT STATUS</th><th/></tr></thead><tbody>{data.branches.filter((b:any)=>{const s=data.subs.find((x:any)=>x.sol===b.sol),r=data.pub?.rows.find((x:any)=>x.sol===b.sol);const hasLpc=s&&(Number(s.values.lpc_retail_count||0)>0||Number(s.values.lpc_agri_count||0)>0||Number(s.values.lpc_msme_count||0)>0);const hasSanction=s&&(Number(s.values.sanction_retail_count||0)>0||Number(s.values.sanction_agri_count||0)>0||Number(s.values.sanction_msme_count||0)>0);return (b.name+' '+b.sol).toLowerCase().includes(search.toLowerCase())&&(filter==='All branches'||filter===status(b)||(filter==='SB Negative (MTD)'&&r?.sb_growth<0)||(filter==='CD Negative (MTD)'&&r?.cd_growth<0)||(filter==='SB Degrowth Today'&&s&&Number(s.values.sb_growth_today||0)<0)||(filter==='CD Degrowth Today'&&s&&Number(s.values.cd_growth_today||0)<0)||(filter==='TD Degrowth Today'&&s&&Number(s.values.td_growth_today||0)<0)||(filter==='LPC Forwarded Cases'&&hasLpc)||(filter==='Sanctions Today'&&hasSanction)||(filter==='NIL openings'&&s&&s.values.sb_opened===0&&s.values.cd_opened===0));}).map((b:any)=>{const r=data.pub?.rows.find((x:any)=>x.sol===b.sol),s=data.subs.find((x:any)=>x.sol===b.sol);const totalSma=Number(s?.values?.sma0_amount||0)+Number(s?.values?.sma1_amount||0)+Number(s?.values?.sma2_amount||0);const totalLpc=Number(s?.values?.lpc_retail_amount||0)+Number(s?.values?.lpc_agri_amount||0)+Number(s?.values?.lpc_msme_amount||0);const totalLpcCnt=Number(s?.values?.lpc_retail_count||0)+Number(s?.values?.lpc_agri_count||0)+Number(s?.values?.lpc_msme_count||0);const totalSanction=Number(s?.values?.sanction_retail_amount||0)+Number(s?.values?.sanction_agri_amount||0)+Number(s?.values?.sanction_msme_amount||0);return <tr key={b.sol}><td><b>{b.name}</b><small>SOL {b.sol}</small></td><td data-label="SB Position">{r?<div><span className={r.sb_growth<0?'negative':r.sb_growth>0?'positive':'muted'}>MTD: ₹{fmt(r.sb_growth)}</span>{s?.values?.sb_growth_today!=null&&<small style={{color:Number(s.values.sb_growth_today)<0?'#dc2626':'#059669',fontWeight:600}}>Today: ₹{fmt(s.values.sb_growth_today)} {Number(s.values.sb_growth_today)<0?'▼':'▲'}</small>}{s&&<small>+{s.values.sb_opened} ({s.values.sb_funded} funded)</small>}</div>:'—'}</td><td data-label="CD Position">{r?<div><span className={r.cd_growth<0?'negative':r.cd_growth>0?'positive':'muted'}>MTD: ₹{fmt(r.cd_growth)}</span>{s?.values?.cd_growth_today!=null&&<small style={{color:Number(s.values.cd_growth_today)<0?'#dc2626':'#059669',fontWeight:600}}>Today: ₹{fmt(s.values.cd_growth_today)} {Number(s.values.cd_growth_today)<0?'▼':'▲'}</small>}{s&&<small>+{s.values.cd_opened} ({s.values.cd_funded} funded)</small>}</div>:'—'}</td><td data-label="TD Today">{s?.values?.td_growth_today!=null?<div><b style={{color:Number(s.values.td_growth_today)<0?'#dc2626':Number(s.values.td_growth_today)>0?'#059669':'#64748b'}}>₹{fmt(s.values.td_growth_today)}</b><small style={{color:Number(s.values.td_growth_today)<0?'#dc2626':'#059669'}}>{Number(s.values.td_growth_today)<0?'▼ Degrowth':Number(s.values.td_growth_today)>0?'▲ Growth':'NIL'}</small></div>:'—'}</td><td data-label="LPC Forwarded Today">{s&&totalLpcCnt>0?<div><b style={{color:'#0284c7'}}>₹{fmt(totalLpc)}</b><small>{totalLpcCnt} cases (R:{s.values.lpc_retail_count||0} · A:{s.values.lpc_agri_count||0} · M:{s.values.lpc_msme_count||0})</small></div>:'—'}</td><td data-label="Branch Sanctions">{s&&totalSanction>0?<div><span>₹{fmt(totalSanction)}</span><small>R: ₹{fmt(s.values.sanction_retail_amount)} · A: ₹{fmt(s.values.sanction_agri_amount)} · M: ₹{fmt(s.values.sanction_msme_amount)}</small></div>:'—'}</td><td data-label="SMA Elim">{s&&totalSma>0?<div><span style={{color:'#059669',fontWeight:600}}>₹{fmt(totalSma)}</span><small>{Number(s.values.sma0_count||0)+Number(s.values.sma1_count||0)+Number(s.values.sma2_count||0)} accts</small></div>:'—'}</td><td data-label="Report"><span className={'badge '+status(b).toLowerCase()}>{status(b)}</span></td><td><button className="textbutton" onClick={()=>openBranch(b.sol,tab==='Review desk'?'Review entry':'Branch report')}>{tab==='Review desk'?'Review':'Open'} <ChevronRight size={15}/></button></td></tr>})}</tbody></table></div></div><div className="footnote">Confirmed figures and branch-reported additions are kept separate. A missing report is never counted as NIL.</div></>}
+<div className="panel"><div className="paneltop"><div><h2>{tab==='Review desk'?'Review queue':'Branch performance'}</h2><p>{data.pub?'Published v'+data.pub.version+' · Amounts in ₹ · '+data.pub.baseline:'Confirmed positions will appear after publication.'}</p></div><button className="secondary" onClick={()=>download('IOB_summary_'+date+'.csv','SOL,Branch,Status,SB opened today,CD opened today,SB growth today ₹,CD growth today ₹,TD growth today ₹,Retail sanctions today accts,Retail sanctions today ₹,Agri sanctions today accts,Agri sanctions today ₹,MSME sanctions today accts,MSME sanctions today ₹,Retail LPC forwarded accts,Retail LPC forwarded ₹,Agri LPC forwarded accts,Agri LPC forwarded ₹,MSME LPC forwarded accts,MSME LPC forwarded ₹,SMA0 elim accts,SMA0 elim ₹,SMA1 elim accts,SMA1 elim ₹,SMA2 elim accts,SMA2 elim ₹,Total SMA elim ₹\n'+data.branches.map((b:any)=>{const s=data.subs.find((x:any)=>x.sol===b.sol);const totalSmaElim=Number(s?.values?.sma0_amount||0)+Number(s?.values?.sma1_amount||0)+Number(s?.values?.sma2_amount||0);return [b.sol,b.name,status(b),s?.values.sb_opened??'',s?.values.cd_opened??'',s?.values.sb_growth_today??'',s?.values.cd_growth_today??'',s?.values.td_growth_today??'',s?.values.sanction_retail_count??'',s?.values.sanction_retail_amount??'',s?.values.sanction_agri_count??'',s?.values.sanction_agri_amount??'',s?.values.sanction_msme_count??'',s?.values.sanction_msme_amount??'',s?.values.lpc_retail_count??'',s?.values.lpc_retail_amount??'',s?.values.lpc_agri_count??'',s?.values.lpc_agri_amount??'',s?.values.lpc_msme_count??'',s?.values.lpc_msme_amount??'',s?.values.sma0_count??'',s?.values.sma0_amount??'',s?.values.sma1_count??'',s?.values.sma1_amount??'',s?.values.sma2_count??'',s?.values.sma2_amount??'',totalSmaElim||''].join(',')}).join('\n'))}><Download size={16}/>Export summary</button></div><div className="toolbar"><input placeholder="Search branch or SOL…" value={search} onChange={e=>setSearch(e.target.value)}/><select value={filter} onChange={e=>setFilter(e.target.value)}>{['All branches','Pending','Submitted','Reviewed','Clarification','SB Negative (MTD)','CD Negative (MTD)','SB Degrowth Today','CD Degrowth Today','TD Degrowth Today','LPC Forwarded Cases','Sanctions Today','NIL openings'].map(x=><option key={x}>{x}</option>)}</select></div><div className="tablewrap branchlist"><table><thead><tr><th>BRANCH</th><th>SB POSITION & OPENINGS</th><th>CD POSITION & OPENINGS</th><th>TD TODAY</th><th>LPC FORWARDED TODAY</th><th>BRANCH SANCTIONS</th><th>SMA ELIM</th><th>REPORT STATUS</th><th/></tr></thead><tbody>{data.branches.filter((b:any)=>{const s=data.subs.find((x:any)=>x.sol===b.sol),r=data.pub?.rows.find((x:any)=>x.sol===b.sol);const hasLpc=s&&(Number(s.values.lpc_retail_count||0)>0||Number(s.values.lpc_agri_count||0)>0||Number(s.values.lpc_msme_count||0)>0);const hasSanction=s&&(Number(s.values.sanction_retail_count||0)>0||Number(s.values.sanction_agri_count||0)>0||Number(s.values.sanction_msme_count||0)>0);return (b.name+' '+b.sol).toLowerCase().includes(search.toLowerCase())&&(filter==='All branches'||filter===status(b)||(filter==='SB Negative (MTD)'&&r?.sb_growth<0)||(filter==='CD Negative (MTD)'&&r?.cd_growth<0)||(filter==='SB Degrowth Today'&&s&&Number(s.values.sb_growth_today||0)<0)||(filter==='CD Degrowth Today'&&s&&Number(s.values.cd_growth_today||0)<0)||(filter==='TD Degrowth Today'&&s&&Number(s.values.td_growth_today||0)<0)||(filter==='LPC Forwarded Cases'&&hasLpc)||(filter==='Sanctions Today'&&hasSanction)||(filter==='NIL openings'&&s&&s.values.sb_opened===0&&s.values.cd_opened===0));}).map((b:any)=>{const r=data.pub?.rows.find((x:any)=>x.sol===b.sol),s=data.subs.find((x:any)=>x.sol===b.sol);const totalSma=Number(s?.values?.sma0_amount||0)+Number(s?.values?.sma1_amount||0)+Number(s?.values?.sma2_amount||0);const totalLpc=Number(s?.values?.lpc_retail_amount||0)+Number(s?.values?.lpc_agri_amount||0)+Number(s?.values?.lpc_msme_amount||0);const totalLpcCnt=Number(s?.values?.lpc_retail_count||0)+Number(s?.values?.lpc_agri_count||0)+Number(s?.values?.lpc_msme_count||0);const totalSanction=Number(s?.values?.sanction_retail_amount||0)+Number(s?.values?.sanction_agri_amount||0)+Number(s?.values?.sanction_msme_amount||0);return <tr key={b.sol}><td><b>{b.name}</b><small>SOL {b.sol}</small></td><td data-label="SB Position & Openings">{r?<div><span className={r.sb_growth<0?'negative':r.sb_growth>0?'positive':'muted'}>MTD: ₹{fmt(r.sb_growth)}</span>{s?.values?.sb_growth_today!=null&&<small style={{color:Number(s.values.sb_growth_today)<0?'#dc2626':'#059669',fontWeight:600}}>Today: ₹{fmt(s.values.sb_growth_today)} {Number(s.values.sb_growth_today)<0?'▼':'▲'}</small>}{s&&<div style={{marginTop:3}}><span style={{display:'inline-block',background:'#e0f2fe',color:'#0369a1',padding:'1px 6px',borderRadius:4,fontSize:11,fontWeight:700}}>Opened: +{s.values.sb_opened} ({s.values.sb_funded} funded)</span></div>}</div>:'—'}</td><td data-label="CD Position & Openings">{r?<div><span className={r.cd_growth<0?'negative':r.cd_growth>0?'positive':'muted'}>MTD: ₹{fmt(r.cd_growth)}</span>{s?.values?.cd_growth_today!=null&&<small style={{color:Number(s.values.cd_growth_today)<0?'#dc2626':'#059669',fontWeight:600}}>Today: ₹{fmt(s.values.cd_growth_today)} {Number(s.values.cd_growth_today)<0?'▼':'▲'}</small>}{s&&<div style={{marginTop:3}}><span style={{display:'inline-block',background:'#f1f5f9',color:'#334155',padding:'1px 6px',borderRadius:4,fontSize:11,fontWeight:700}}>Opened: +{s.values.cd_opened} ({s.values.cd_funded} funded)</span></div>}</div>:'—'}</td><td data-label="TD Today">{s?.values?.td_growth_today!=null?<div><b style={{color:Number(s.values.td_growth_today)<0?'#dc2626':Number(s.values.td_growth_today)>0?'#059669':'#64748b'}}>₹{fmt(s.values.td_growth_today)}</b><small style={{color:Number(s.values.td_growth_today)<0?'#dc2626':'#059669'}}>{Number(s.values.td_growth_today)<0?'▼ Degrowth':Number(s.values.td_growth_today)>0?'▲ Growth':'NIL'}</small></div>:'—'}</td><td data-label="LPC Forwarded Today">{s&&totalLpcCnt>0?<div><b style={{color:'#0284c7'}}>₹{fmt(totalLpc)}</b><small>{totalLpcCnt} cases (R:{s.values.lpc_retail_count||0} · A:{s.values.lpc_agri_count||0} · M:{s.values.lpc_msme_count||0})</small></div>:'—'}</td><td data-label="Branch Sanctions">{s&&totalSanction>0?<div><span>₹{fmt(totalSanction)}</span><small>R: ₹{fmt(s.values.sanction_retail_amount)} · A: ₹{fmt(s.values.sanction_agri_amount)} · M: ₹{fmt(s.values.sanction_msme_amount)}</small></div>:'—'}</td><td data-label="SMA Elim">{s&&totalSma>0?<div><span style={{color:'#059669',fontWeight:600}}>₹{fmt(totalSma)}</span><small>{Number(s.values.sma0_count||0)+Number(s.values.sma1_count||0)+Number(s.values.sma2_count||0)} accts</small></div>:'—'}</td><td data-label="Report"><span className={'badge '+status(b).toLowerCase()}>{status(b)}</span></td><td><button className="textbutton" onClick={()=>openBranch(b.sol,tab==='Review desk'?'Review entry':'Branch report')}>{tab==='Review desk'?'Review':'Open'} <ChevronRight size={15}/></button></td></tr>})}</tbody></table></div></div><div className="footnote">Confirmed figures and branch-reported additions are kept separate. A missing report is never counted as NIL.</div></>}
 {(tab==='Branch report'||tab==='Review entry')&&<>{tab==='Review entry'&&<button className="backbutton secondary" onClick={()=>setTab('Review desk')}>← Back to review queue</button>}<div className="panel branchpicker">{data.user.role==='branch'?<div><h2>{branch?.name}</h2><small>SOL {sol} · Your branch</small></div>:<label>Branch<select value={sol} onChange={e=>openBranch(e.target.value,tab)}><option value="">Select a branch</option>{data.branches.map((b:any)=><option key={b.sol} value={b.sol}>{b.sol} · {b.name}</option>)}</select></label>}{sub&&<span className="badge submitted">Revision {sub.revision} · {new Date(sub.at).toLocaleString('en-IN',{timeZone:'Asia/Kolkata'})}</span>}</div>
 {snap&&<><div className="panel"><h2>{branch?.name} <span className="muted">· SOL {sol}</span></h2><p>{data.pub?`Confirmed through ${data.pub.cutoff} · Funded: ${data.pub.fundedDefinition}`:'Awaiting admin baseline publication · You can record and submit today’s performance below.'}</p><div className="tablewrap"><table><thead><tr><th>ACCOUNT POSITION</th><th>SB OPENED / FUNDED</th><th>CD OPENED / FUNDED</th></tr></thead><tbody>{['fy','mtd'].map(p=><tr key={p}><td>{p==='fy'?'FY through prior month-end':'Current month through yesterday'}</td>{['sb','cd'].map(t=><td key={t}>{fmt(snap[t+'_'+p+'_opened'])} / {fmt(snap[t+'_'+p+'_funded'])}</td>)}</tr>)}</tbody></table></div><div className="tablewrap" style={{marginTop:16}}><table><thead><tr><th>SANCTIONS POSITION</th><th>SANCTIONS UPTO LAST MONTH (ACCTS / ₹)</th><th>SANCTIONS IN CURRENT MONTH TILL YESTERDAY (ACCTS / ₹)</th></tr></thead><tbody>{sanctionSectors.map((s:any)=><tr key={s}><td><b>{sectorLabels[s]}</b></td><td>{fmt(snap['sanction_'+s+'_prior_count'])} accts · ₹{fmt(snap['sanction_'+s+'_prior_amount'])}</td><td>{fmt(snap['sanction_'+s+'_mtd_count'])} accts · ₹{fmt(snap['sanction_'+s+'_mtd_amount'])}</td></tr>)}</tbody></table></div><div className="growthline">{['sb','cd'].map(p=><div key={p} className={snap[p+'_growth']<0?'negative':'positive'}>{p.toUpperCase()} growth: ₹{fmt(snap[p+'_growth'])} <b>{snap[p+'_growth']<0?'Negative':snap[p+'_growth']>0?'Positive':'Zero growth'}</b></div>)}</div></div>
 {tab==='Branch report'&&data.user.role!=='reviewer'&&<><div className="panel"><div className="paneltop"><div><h2>01 · Today’s account openings</h2><p>Enter today’s additions only. Funded accounts must belong to today’s openings.</p></div><button className="secondary" onClick={()=>setValues((v:any)=>({...v,...Object.fromEntries(['sb_opened','sb_funded','cd_opened','cd_funded','sb_growth_today','cd_growth_today','td_growth_today','sma0_count','sma0_amount','sma1_count','sma1_amount','sma2_count','sma2_amount',...sanctionSectors.flatMap((s:any)=>['sanction_'+s+'_count','sanction_'+s+'_amount','lpc_'+s+'_count','lpc_'+s+'_amount']),...active.map((c:any)=>'camp_'+c.id)].map(k=>[k,0]))}))}>Set today’s additions to NIL</button></div><div className="grid4">{field('SB opened today','sb_opened')}{field('Of these, funded','sb_funded')}{field('CD opened today','cd_opened')}{field('Of these, funded','cd_funded')}</div><div className="miniinfo">Provisional MTD openings: SB {fmt(snap.sb_mtd_opened+Number(values.sb_opened||0))} · CD {fmt(snap.cd_mtd_opened+Number(values.cd_opened||0))}. Confirmed growth remains unchanged.</div>{(()=>{const bFund=(data?.fundingAccounts||[]).filter((a:any)=>a.sol===sol);const bDone=bFund.filter((a:any)=>a.funded);const bAmt=bDone.reduce((acc:number,a:any)=>acc+Number(a.funded_amount||0),0);return <div style={{marginTop:14,padding:'12px 16px',background:'#f0f9ff',border:'1px solid #bae6fd',borderRadius:8,display:'flex',justifyContent:'space-between',alignItems:'center',flexWrap:'wrap',gap:10}}><div><div style={{display:'flex',alignItems:'center',gap:6,color:'#0369a1',fontWeight:700,fontSize:13}}><CheckCircle2 size={16} color="#0284c7"/><span>Low Balance Accounts Funding (Live Auto-Sync)</span><span style={{fontSize:10,background:'#e0f2fe',color:'#0369a1',padding:'2px 8px',borderRadius:10,border:'1px solid #bae6fd',fontWeight:700}}>AUTO-FETCHED · NO MANUAL ENTRY</span></div><div style={{fontSize:12,color:'#334155',marginTop:4}}><b>{bDone.length}</b> of <b>{bFund.length}</b> low balance accounts funded &bull; Mobilized: <b style={{color:'#059669'}}>₹{fmt(bAmt)}</b></div></div><button type="button" className="secondary" onClick={()=>switchPortal('funding')} style={{fontSize:12,padding:'5px 12px',display:'inline-flex',alignItems:'center',gap:5,color:'#0284c7',borderColor:'#bae6fd'}}>Open Funding Portal <ExternalLink size={13}/></button></div>;})()}</div>
