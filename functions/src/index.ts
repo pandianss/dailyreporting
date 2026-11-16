@@ -83,9 +83,11 @@ app.post('/api/auth', async (req, res) => {
 
 app.get('/api/portal', async (req, res) => {
   const queryDate = typeof req.query.date === 'string' ? req.query.date : null;
+  const portal = typeof req.query.portal === 'string' ? req.query.portal : null;
   const result = await handlePortalGet(store, getConfig(), branches, model, {
     cookieHeader: req.get('cookie') || '',
     queryDate,
+    portal,
   });
   res.status(result.status).json(result.body);
 });

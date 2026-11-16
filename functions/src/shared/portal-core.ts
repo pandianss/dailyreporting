@@ -426,7 +426,7 @@ export async function handlePortalGet(
   config: PortalConfig,
   branches: Branch[],
   model: ModelHelpers,
-  input: { cookieHeader: string; queryDate?: string | null }
+  input: { cookieHeader: string; queryDate?: string | null; portal?: string | null }
 ) {
   try {
     const auth = await authenticateRequest(store, config, input.cookieHeader);
@@ -449,11 +449,54 @@ export async function handlePortalGet(
       // non-blocking
     }
 
-    let pub = await store.get('pub:' + date);
-    let subs = await store.list('sub:' + date + ':');
-    let reviews = await store.list('review:' + date + ':');
+    const isBranch = auth.user.role === 'branch';
+    const isSma = input.portal === 'sma';
+    const isFunding = input.portal === 'funding';
+    const canSeeDirectory = ['admin', 'reviewer', 'srm', 'gm'].includes(auth.user.role);
 
-    if (auth.user.role === 'branch') {
+    // Parallel fetch using Promise.all for maximum speed and sub-second load times!
+    const [
+      pubRaw,
+      subsRaw,
+      reviewsRaw,
+      campaigns,
+      campData,
+      rawRepayments,
+      rawSma,
+      rawFunding,
+      contacts,
+      grantsRaw,
+      jobs,
+      logins,
+    ] = await Promise.all([
+      store.get('pub:' + date),
+      store.list('sub:' + date + ':'),
+      store.list('review:' + date + ':'),
+      store.list('campaign:'),
+      store.list('campdata:'),
+      // Fetch repayments only when requested by SMA portal or branch
+      (isSma || isBranch)
+        ? store.list(isBranch ? 'repay:' + auth.user.sol + ':' : 'repay:')
+        : Promise.resolve([]),
+      // Fetch SMA accounts only when requested by SMA portal or branch
+      (isSma || isBranch)
+        ? store.list(isBranch ? 'sma:' + auth.user.sol + ':' : 'sma:')
+        : Promise.resolve([]),
+      // Fetch funding accounts
+      (isFunding || isBranch)
+        ? store.list(isBranch ? 'funding:' + auth.user.sol + ':' : 'funding:')
+        : Promise.resolve([]),
+      canSeeDirectory ? store.list('contact:') : Promise.resolve([]),
+      canSeeDirectory ? store.list('account:') : Promise.resolve([]),
+      auth.user.role === 'admin' ? store.list('out:') : Promise.resolve([]),
+      store.list('login:' + date + ':'),
+    ]);
+
+    let pub = pubRaw;
+    let subs = subsRaw;
+    let reviews = reviewsRaw;
+
+    if (isBranch) {
       if (pub) {
         pub = { ...pub, rows: pub.rows.filter((b: any) => b.sol === auth.user.sol) };
       }
@@ -461,28 +504,8 @@ export async function handlePortalGet(
       reviews = reviews.filter((s: any) => s.sol === auth.user.sol);
     }
 
-    const campaigns = await store.list('campaign:');
-    const campData = await store.list('campdata:');
-    const rawRepayments =
-      auth.user.role === 'branch'
-        ? await store.list('repay:' + auth.user.sol + ':')
-        : await store.list('repay:');
     const repayments = model.repaymentsDueInNextDays(rawRepayments, date, 3);
-    const rawSma =
-      auth.user.role === 'branch'
-        ? await store.list('sma:' + auth.user.sol + ':')
-        : await store.list('sma:');
-    const rawFunding =
-      auth.user.role === 'branch'
-        ? await store.list('funding:' + auth.user.sol + ':')
-        : await store.list('funding:');
-    const canSeeDirectory = ['admin', 'reviewer', 'srm', 'gm'].includes(auth.user.role);
-    const contacts = canSeeDirectory ? await store.list('contact:') : [];
-    const grants = canSeeDirectory
-      ? (await store.list('account:')).map(({ hash, salt, ...a }: any) => a)
-      : [];
-    const jobs = auth.user.role === 'admin' ? await store.list('out:') : [];
-    const logins = await store.list('login:' + date + ':');
+    const grants = grantsRaw.map(({ hash, salt, ...a }: any) => a);
 
     return {
       status: 200,

@@ -104,9 +104,9 @@ const [copiedCampGroupMsg, setCopiedCampGroupMsg] = useState(false);
 const [copiedCampBranchSol, setCopiedCampBranchSol] = useState<string | null>(null);
 const [campBranchFilter, setCampBranchFilter] = useState('All');
 const [campBranchSearch, setCampBranchSearch] = useState('');
-async function load(isSilent=false){const requestId=++loadId.current;if(!isSilent)setError('');try{const r=await fetch('/api/portal?date='+date+'&_t='+Date.now(),{cache:'no-store'}),j:any=await r.json();if(requestId!==loadId.current)return;if(!r.ok)throw Error(j.error);setData(j);if(j.user.role==='branch'){setSol(j.user.sol);setValues((prev:any)=>Object.keys(prev).length?prev:(j.subs.find((x:any)=>x.sol===j.user.sol)?.values||{}));}if(!routed.current){setTab(j.user.role==='branch'?'Branch report':j.user.role==='reviewer'?'Review desk':(j.user.role==='srm'||j.user.role==='gm')?'Overview':'Publish data');setReviewStatus((j.user.role==='srm'||j.user.role==='gm')?'gm_direction':'reviewed');routed.current=true;}}catch(e:any){if(!isSilent)setError(e.message);if(/sign.in|session|account changed/i.test(e.message))onExit();}}
+async function load(isSilent=false){const requestId=++loadId.current;if(!isSilent)setError('');try{const r=await fetch('/api/portal?date='+date+'&portal=daily&_t='+Date.now(),{cache:'no-store'}),j:any=await r.json();if(requestId!==loadId.current)return;if(!r.ok)throw Error(j.error);setData(j);if(j.user.role==='branch'){setSol(j.user.sol);setValues((prev:any)=>Object.keys(prev).length?prev:(j.subs.find((x:any)=>x.sol===j.user.sol)?.values||{}));}if(!routed.current){setTab(j.user.role==='branch'?'Branch report':j.user.role==='reviewer'?'Review desk':(j.user.role==='srm'||j.user.role==='gm')?'Overview':'Publish data');setReviewStatus((j.user.role==='srm'||j.user.role==='gm')?'gm_direction':'reviewed');routed.current=true;}}catch(e:any){if(!isSilent)setError(e.message);if(/sign.in|session|account changed/i.test(e.message))onExit();}}
 useEffect(()=>{const d=new URLSearchParams(window.location.search).get('date');if(d){try{cutoffs(d);setDate(d);}catch{}}},[]);
-useEffect(()=>{setData(null);load();setValues({});setReply('');setRows([]);setMeta((m:any)=>({...m,cutoff:cutoffs(date).yesterday}));},[date]);
+useEffect(()=>{load();setValues({});setReply('');setRows([]);setMeta((m:any)=>({...m,cutoff:cutoffs(date).yesterday}));},[date]);
 useEffect(()=>{const timer=setInterval(()=>{if(document.visibilityState==='visible')load(true);},8000);const onFocus=()=>load(true);const onVisibility=()=>{if(document.visibilityState==='visible')load(true);};window.addEventListener('focus',onFocus);document.addEventListener('visibilitychange',onVisibility);return ()=>{clearInterval(timer);window.removeEventListener('focus',onFocus);document.removeEventListener('visibilitychange',onVisibility);};},[date]);
 async function act(body:any,message:string){setBusy(true);setError('');setNotice('');try{const r=await fetch('/api/portal',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({date,...body})}),j:any=await r.json();if(!r.ok)throw Error(j.error);await load();setNotice(message);return true;}catch(e:any){setError(e.message);return false;}finally{setBusy(false);}}
 function openBranch(s:string,t='Branch report'){setSol(s);setTab(t);const old=data.subs.find((x:any)=>x.sol===s);setValues(old?.values||{});setReply('');}
@@ -283,8 +283,25 @@ return <div className={"shell role-"+data.user.role}><aside><div className="bran
   const nilOpeningsBranches = data.subs.filter((s:any)=>Number(s.values.sb_opened||0)===0 && Number(s.values.cd_opened||0)===0).length;
 
   return <>
-    {/* ROW 1: TODAY'S GROWTH / MOVEMENT & ACCOUNT OPENING - SB, CD, TD 100% SEPARATE & LPC */}
+    {/* ROW 1: REPORTS SUBMITTED & DEPOSIT GROWTH/OPENINGS (SB, CD, TD 100% SEPARATE) */}
     <div className="stats">
+      <div
+        style={{cursor:'pointer',border:filter==='Pending'?'2px solid #0d4b9f':'1px solid #e6eaf0'}}
+        onClick={()=>setFilter(filter==='Pending'?'All branches':'Pending')}
+        title="Click to filter branches pending report submission"
+      >
+        <div style={{display:'flex',justifyContent:'space-between',alignItems:'baseline'}}>
+          <span>Reports Submitted</span>
+          <span style={{fontSize:11,fontWeight:700,color:data.branches.length-data.subs.length>0?'#dc2626':'#059669',background:data.branches.length-data.subs.length>0?'#fef2f2':'#ecfdf5',padding:'1px 6px',borderRadius:4}}>
+            {data.branches.length-data.subs.length} PENDING
+          </span>
+        </div>
+        <strong>{data.subs.length} <em style={{fontSize:17,color:'#64748b'}}>/ {data.branches.length}</em></strong>
+        <small style={{lineHeight:1.6}}>
+          <b style={{color:data.branches.length-data.subs.length>0?'#dc2626':'#059669'}}>{data.branches.length-data.subs.length} branches pending</b> &bull; {nilOpeningsBranches} NIL openings
+        </small>
+      </div>
+
       <div
         style={{cursor:'pointer',border:filter==='SB Degrowth Today'?'2px solid #0d4b9f':'1px solid #e6eaf0'}}
         onClick={()=>setFilter(filter==='SB Degrowth Today'?'All branches':'SB Degrowth Today')}
@@ -337,24 +354,9 @@ return <div className={"shell role-"+data.user.role}><aside><div className="bran
         <strong style={{color:tdToday>=0?'#059669':'#dc2626'}}>₹{fmt(tdToday)}</strong>
         <small style={{marginTop:8,display:'block'}}>Term Deposit mobilization today &bull; {data.subs.filter((s:any)=>Number(s.values.td_growth_today||0)>0).length} branches positive</small>
       </div>
-
-      <div
-        style={{cursor:'pointer',border:filter==='LPC Forwarded Cases'?'2px solid #0284c7':'1px solid #e6eaf0'}}
-        onClick={()=>setFilter(filter==='LPC Forwarded Cases'?'All branches':'LPC Forwarded Cases')}
-        title="Click to filter branches with LPC forwarded cases today"
-      >
-        <div style={{display:'flex',justifyContent:'space-between',alignItems:'baseline'}}>
-          <span>Today’s LPC Forwarded</span>
-          <span style={{fontSize:11,fontWeight:700,color:'#0284c7',background:'#f0f9ff',padding:'1px 6px',borderRadius:4}}>
-            ₹{fmt(totalLpcAmt)}
-          </span>
-        </div>
-        <strong style={{color:'#0284c7'}}>{totalLpcCnt} <em style={{fontSize:17,color:'#64748b',fontWeight:500}}>proposals</em></strong>
-        <small style={{fontWeight:600,color:'#0369a1',marginTop:6,display:'block'}}>Retail: {lpcRCount} (₹{fmt(lpcRAmt)}) · Agri: {lpcACount} (₹{fmt(lpcAAmt)}) · MSME: {lpcMCount} (₹{fmt(lpcMAmt)})</small>
-      </div>
     </div>
 
-    {/* ROW 2: NEGATIVE BRANCHES COUNT (SB, CD, TD SEPARATELY) & ACCOUNTS OPENED / SUBMISSIONS */}
+    {/* ROW 2: NEGATIVE BRANCHES COUNT (SB, CD, TD SEPARATELY) & LPC FORWARDED */}
     <div className="stats" style={{marginTop:-8}}>
       <div
         style={{cursor:'pointer',border:filter==='SB Negative (MTD)'?'2px solid #dc2626':'1px solid #e6eaf0'}}
@@ -393,21 +395,18 @@ return <div className={"shell role-"+data.user.role}><aside><div className="bran
       </div>
 
       <div
-        style={{cursor:'pointer',border:filter==='NIL openings'?'2px solid #ea580c':filter==='Pending'?'2px solid #0d4b9f':'1px solid #e6eaf0'}}
-        onClick={()=>setFilter(filter==='NIL openings'?'All branches':'NIL openings')}
-        title="Click to filter branches by NIL account openings"
+        style={{cursor:'pointer',border:filter==='LPC Forwarded Cases'?'2px solid #0284c7':'1px solid #e6eaf0'}}
+        onClick={()=>setFilter(filter==='LPC Forwarded Cases'?'All branches':'LPC Forwarded Cases')}
+        title="Click to filter branches with LPC forwarded cases today"
       >
         <div style={{display:'flex',justifyContent:'space-between',alignItems:'baseline'}}>
-          <span>Total Accounts Opened Today</span>
-          <span style={{fontSize:10,fontWeight:700,color:'#ea580c',background:'#fff7ed',padding:'1px 5px',borderRadius:4}}>
-            {nilOpeningsBranches} NIL OPENINGS
+          <span>Today’s LPC Forwarded</span>
+          <span style={{fontSize:11,fontWeight:700,color:'#0284c7',background:'#f0f9ff',padding:'1px 6px',borderRadius:4}}>
+            ₹{fmt(totalLpcAmt)}
           </span>
         </div>
-        <strong style={{color:'#0d4b9f'}}>+{sbOpenedToday + cdOpenedToday} <em style={{fontSize:17,color:'#64748b',fontWeight:500}}>accounts</em></strong>
-        <small style={{lineHeight:1.6}}>
-          <b>SB: +{sbOpenedToday}</b> ({sbFundedToday} funded) &bull; <b>CD: +{cdOpenedToday}</b> ({cdFundedToday} funded)<br/>
-          {data.subs.length} / {data.branches.length} reports submitted ({data.branches.length-data.subs.length} pending)
-        </small>
+        <strong style={{color:'#0284c7'}}>{totalLpcCnt} <em style={{fontSize:17,color:'#64748b',fontWeight:500}}>proposals</em></strong>
+        <small style={{fontWeight:600,color:'#0369a1',marginTop:6,display:'block'}}>Retail: {lpcRCount} (₹{fmt(lpcRAmt)}) · Agri: {lpcACount} (₹{fmt(lpcAAmt)}) · MSME: {lpcMCount} (₹{fmt(lpcMAmt)})</small>
       </div>
     </div>
 
