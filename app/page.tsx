@@ -2,6 +2,7 @@
 import {useEffect,useState,useRef} from 'react';
 import {LayoutDashboard,Upload,ClipboardList,MessageSquare,Users,Flag,ArrowUpRight,ArrowDownRight,CheckCircle2,Clock,ChevronRight,Download,Plus,Send,RefreshCw,Building2,ExternalLink,UserCheck,X,FastForward,RotateCcw,Copy,Phone,Sparkles} from 'lucide-react';
 import Login from './Login';
+import { generateBranchPerformanceScorecard } from './performance-image';
 import {baseFields,parseCSV,validateSnapshot,cutoffs,sanctionSectors,sanctionSectorLabels,sanctionEntryFields,parseDirectoryCSV,validateDirectory,parseCampaignCSV,validateCampaignData} from './model.mjs';
 const sectorLabels:Record<string,string>=sanctionSectorLabels;
 const today=()=>new Date().toLocaleDateString('en-CA',{timeZone:'Asia/Kolkata'});
@@ -199,6 +200,108 @@ function getGroupReminderMsg(tabType: string) {
     return `${idx + 1}. [SOL ${b.sol}] ${b.name} (${negStr})`;
   });
   return `*INDIAN OVERSEAS BANK - DINDIGUL REGION*\n*BRANCHES WITH NEGATIVE MTD GROWTH · ${date}*\n\nDear Branch Heads,\nThe following *${negMtdBranchesList.length} branches* currently have negative growth under SB or CD:\n\n${lines.join('\n')}\n\nAction plans and daily deposit mobilization are requested from all concerned branch heads.\n👉 https://dailyreport-9265a.web.app/?date=${date}\n\n— Regional Office, IOB Dindigul`;
+}
+
+const [reviewImageModal, setReviewImageModal] = useState<any>(null);
+const [imgCopied, setImgCopied] = useState(false);
+const [txtCopied, setTxtCopied] = useState(false);
+
+async function openReviewImageModal(targetSol: string, customReviewText?: string, customReviewStatus?: string, customBy?: string, customRole?: string, customAt?: string) {
+  const targetBranch = data?.branches?.find((b: any) => b.sol === targetSol) || { sol: targetSol, name: 'Branch ' + targetSol };
+  const targetSub = data?.subs?.find((s: any) => s.sol === targetSol);
+  const targetSnap = data?.pub?.rows?.find((r: any) => r.sol === targetSol);
+  const contact = getBranchHeadContact(targetSol);
+
+  let revObj: any = null;
+  if (customReviewText) {
+    revObj = {
+      text: customReviewText,
+      status: customReviewStatus || 'reviewed',
+      by: customBy || data.user.email,
+      role: customRole || data.user.role,
+      at: customAt || new Date().toISOString(),
+    };
+  } else {
+    const existingRev = (data?.reviews || []).filter((r: any) => r.sol === targetSol).slice(-1)[0];
+    if (existingRev) revObj = existingRev;
+  }
+
+  setReviewImageModal({
+    isOpen: true,
+    sol: targetSol,
+    branch: targetBranch,
+    sub: targetSub,
+    review: revObj,
+    loading: true,
+    dataUrl: null,
+    blob: null,
+    file: null,
+    textSummary: '',
+  });
+  setImgCopied(false);
+  setTxtCopied(false);
+
+  try {
+    const res = await generateBranchPerformanceScorecard({
+      branch: targetBranch,
+      headContact: contact,
+      date,
+      sub: targetSub,
+      snap: targetSnap,
+      review: revObj,
+      fundingAccounts: data?.fundingAccounts || [],
+      campaigns: data?.campaigns || [],
+      isGm: isGm || revObj?.status === 'gm_direction' || revObj?.status === 'srm_direction',
+    });
+
+    try {
+      if (typeof ClipboardItem !== 'undefined' && navigator.clipboard && navigator.clipboard.write) {
+        await navigator.clipboard.write([new ClipboardItem({ 'image/png': res.blob })]);
+        setImgCopied(true);
+      }
+    } catch (clipErr) {
+      console.warn('Auto copy image fallback:', clipErr);
+    }
+
+    setReviewImageModal((prev: any) => prev ? {
+      ...prev,
+      loading: false,
+      dataUrl: res.dataUrl,
+      blob: res.blob,
+      file: res.file,
+      textSummary: res.textSummary,
+    } : null);
+  } catch (err: any) {
+    console.error('Failed to generate performance scorecard image:', err);
+    setReviewImageModal((prev: any) => prev ? { ...prev, loading: false, error: err.message } : null);
+  }
+}
+
+async function handleShareReviewToWhatsApp(modalData: any) {
+  if (!modalData?.file) return;
+
+  try {
+    if (typeof ClipboardItem !== 'undefined' && navigator.clipboard && navigator.clipboard.write && modalData.blob) {
+      await navigator.clipboard.write([new ClipboardItem({ 'image/png': modalData.blob })]);
+      setImgCopied(true);
+    }
+  } catch {}
+
+  if (typeof navigator !== 'undefined' && (navigator as any).canShare && (navigator as any).canShare({ files: [modalData.file] })) {
+    try {
+      await (navigator as any).share({
+        title: `IOB Daily Performance - ${modalData.branch.name}`,
+        text: modalData.textSummary,
+        files: [modalData.file],
+      });
+      return;
+    } catch (shareErr: any) {
+      if (shareErr.name === 'AbortError') return;
+      console.warn('Native share failed, falling back to wa.me link:', shareErr);
+    }
+  }
+
+  window.open(`https://wa.me/?text=${encodeURIComponent(modalData.textSummary)}`, '_blank');
 }
 async function load(isSilent=false){const requestId=++loadId.current;if(!isSilent)setError('');try{const r=await fetch('/api/portal?date='+date+'&portal=daily&_t='+Date.now(),{cache:'no-store'}),j:any=await r.json();if(requestId!==loadId.current)return;if(!r.ok)throw Error(j.error);setData(j);if(j.user.role==='branch'){setSol(j.user.sol);setValues((prev:any)=>Object.keys(prev).length?prev:(j.subs.find((x:any)=>x.sol===j.user.sol)?.values||{}));}if(!routed.current){setTab(j.user.role==='branch'?'Branch report':j.user.role==='reviewer'?'Review desk':(j.user.role==='srm'||j.user.role==='gm')?'Overview':'Publish data');setReviewStatus((j.user.role==='srm'||j.user.role==='gm')?'gm_direction':'reviewed');routed.current=true;}}catch(e:any){if(!isSilent)setError(e.message);if(/sign.in|session|account changed/i.test(e.message))onExit();}}
 useEffect(()=>{const d=new URLSearchParams(window.location.search).get('date');if(d){try{cutoffs(d);setDate(d);}catch{}}},[]);
@@ -556,9 +659,9 @@ return <div className={"shell role-"+data.user.role}><aside><div className="bran
 <div className="panel"><div className="paneltop"><div><h2>03 · Loan sanctions today (Core Retail, Core Agri, Core MSME)</h2><p>Branch heads should fill their present day performance. Confirmed figures upto last month and current month till yesterday are shown alongside.</p></div></div>{sanctionSectors.map((s:any)=><div className="smarow" key={s}><div><b>{sectorLabels[s].toUpperCase()}</b><small>Sanctions upto last month: {fmt(snap['sanction_'+s+'_prior_count'])} accts / ₹{fmt(snap['sanction_'+s+'_prior_amount'])}</small><small>Current month till yesterday: {fmt(snap['sanction_'+s+'_mtd_count'])} accts / ₹{fmt(snap['sanction_'+s+'_mtd_amount'])}</small></div>{field('Sanctioned accounts today','sanction_'+s+'_count')}{field('Sanctioned amount today (₹)','sanction_'+s+'_amount')}</div>)}<div className="miniinfo">Provisional MTD sanctions (including today): {sanctionSectors.map((s:any)=>`${sectorLabels[s]}: ${fmt(Number(snap['sanction_'+s+'_mtd_count']||0)+Number(values['sanction_'+s+'_count']||0))} accts (₹${fmt(Number(snap['sanction_'+s+'_mtd_amount']||0)+Number(values['sanction_'+s+'_amount']||0))})`).join(' · ')}</div></div>
 <div className="panel"><div className="paneltop"><div><h2>03B · Loans forwarded to LPC today (Core Retail, Core Agri, Core MSME)</h2><p>Proposals forwarded to the Loan Processing Cell (LPC) today for sanction.</p></div></div>{sanctionSectors.map((s:any)=><div className="smarow" key={'lpc_'+s}><div><b>{sectorLabels[s].toUpperCase()}</b><small>Proposals forwarded to LPC today</small></div>{field('Proposals forwarded today','lpc_'+s+'_count')}{field('Proposal amount forwarded (₹)','lpc_'+s+'_amount')}</div>)}<div className="miniinfo">Total LPC proposals forwarded today: {sanctionSectors.reduce((acc:number,s:any)=>acc+Number(values['lpc_'+s+'_count']||0),0)} proposals · ₹{fmt(sanctionSectors.reduce((acc:number,s:any)=>acc+Number(values['lpc_'+s+'_amount']||0),0))}</div></div>
 <div className="panel"><h2>04 · Campaign additions</h2>{active.length?active.map((c:any)=><div className="campaignrow" key={c.id}><div><b>{c.title}</b><small>{c.start} — {c.end}</small><small>Prior months: {fmt(snap['camp_'+c.id+'_prior'])} · This month through yesterday: {fmt(snap['camp_'+c.id+'_mtd'])}</small></div>{field('Added today','camp_'+c.id)}</div>):<p>No campaigns are active for this reporting date.</p>}</div><div className="panel submitpanel"><label>Notes / explanation<textarea value={values.notes||''} onChange={e=>set('notes',e.target.value)} placeholder="Explain exceptions or relevant changes…"/></label><button disabled={busy} onClick={()=>act({action:'submit',sol,values},'Report saved. Prior revisions are retained.')}>Submit daily performance <CheckCircle2 size={17}/></button></div></>}
-{sub&&<div className="panel"><h2>Submitted performance</h2><div className="grid4">{['sb_opened','sb_funded','cd_opened','cd_funded'].map(k=><div key={k}><small>{k.replace('_',' ').toUpperCase()}</small><h2>{fmt(sub.values[k])}</h2></div>)}</div><div style={{marginTop:12,padding:'10px 14px',background:'#f8fafc',borderRadius:8,border:'1px solid #e2e8f0'}}><div style={{fontSize:11,fontWeight:700,color:'#475569',textTransform:'uppercase',letterSpacing:'0.5px'}}>Deposit Growth Today</div><div className="grid3" style={{marginTop:6}}><div><small>SB Growth Today</small><b style={{display:'block',fontSize:15,color:Number(sub.values.sb_growth_today||0)<0?'#dc2626':'#059669'}}>₹{fmt(sub.values.sb_growth_today||0)}</b></div><div><small>CD Growth Today</small><b style={{display:'block',fontSize:15,color:Number(sub.values.cd_growth_today||0)<0?'#dc2626':'#059669'}}>₹{fmt(sub.values.cd_growth_today||0)}</b></div><div><small>TD Growth Today</small><b style={{display:'block',fontSize:15,color:Number(sub.values.td_growth_today||0)<0?'#dc2626':'#059669'}}>₹{fmt(sub.values.td_growth_today||0)}</b></div></div></div><p>{sub.values.notes||'No additional notes.'}</p>{Object.entries(sub.values.plans||{}).map(([p,plan]:any)=><div key={p}><h3>{p.toUpperCase()} positivity commitment · {plan.date}</h3>{plan.funds.map((f:any,i:number)=><p key={i}>{f.reference} · ₹{fmt(f.amount)} · {f.date}</p>)}</div>)}<div className="grid3">{['sma0','sma1','sma2'].map(p=><p key={p}>{p.toUpperCase()}: {sub.values[p+'_count']} eliminated · ₹{fmt(sub.values[p+'_amount'])}</p>)}</div><div className="grid3">{sanctionSectors.map((s:any)=><p key={s}><b>{sectorLabels[s]} Sanctions today</b>: {fmt(sub.values['sanction_'+s+'_count'])} accts · ₹{fmt(sub.values['sanction_'+s+'_amount'])}</p>)}</div><div className="grid3" style={{marginTop:8}}>{sanctionSectors.map((s:any)=><p key={'lpc_'+s} style={{color:'#0284c7'}}><b>{sectorLabels[s]} LPC Forwarded</b>: {fmt(sub.values['lpc_'+s+'_count']||0)} accts · ₹{fmt(sub.values['lpc_'+s+'_amount']||0)}</p>)}</div>{(()=>{const bFund=(data?.fundingAccounts||[]).filter((a:any)=>a.sol===sol);const bDone=bFund.filter((a:any)=>a.funded);const bAmt=bDone.reduce((acc:number,a:any)=>acc+Number(a.funded_amount||0),0);return <div style={{marginTop:10,fontSize:12,color:'#0369a1',background:'#f0f9ff',padding:'8px 12px',borderRadius:6,border:'1px solid #bae6fd'}}><b>Low Balance Funding (Live Sync)</b>: {bDone.length} of {bFund.length} accounts funded (₹{fmt(bAmt)} mobilized)</div>;})()}{active.map((c:any)=><p key={c.id}>{c.title}: {sub.values['camp_'+c.id]} added today</p>)}</div>}
-{sub&&canReview&&<div className="panel"><h2>{isGm?'General Manager (GM) Executive Direction':'Reply to this entry'}</h2><div className="mention"><Users size={16}/>Branch head selected automatically · {branch?.name} ({sol})</div><label>{isGm?'GM remarks / instructions':'Reviewer remarks'}<textarea value={reply} onChange={e=>setReply(e.target.value)} placeholder={isGm?'Provide executive direction or instructions to the branch head…':'Write your feedback or request a clarification…'}/></label><label>Review outcome<select value={reviewStatus} onChange={e=>setReviewStatus(e.target.value)}>{isGm&&<option value="gm_direction">★ GM Direction / Instruction</option>}<option value="reviewed">Reviewed</option><option value="clarification">Clarification required</option></select></label><p className="muted">The review is saved immediately. Group delivery waits for a configured connection and a verified branch-head mapping.</p><button disabled={busy} onClick={async()=>{if(await act({action:'review',sol,text:reply,status:reviewStatus,revision:sub.revision},isGm&&reviewStatus==='gm_direction'?'GM direction saved and queued for group delivery.':'Review saved. The group reply is queued; the administrator can check delivery status.'))setReply('');}}><Send size={16}/>{isGm&&reviewStatus==='gm_direction'?'Issue GM Direction':'Save review & queue group reply'}</button></div>}
-<div className="panel"><h2>Review history</h2>{data.reviews.filter((r:any)=>r.sol===sol).map((r:any)=><div className={"review "+(r.role==='srm'||r.role==='gm'||r.status==='srm_direction'||r.status==='gm_direction'?'srm-review-card':'')} key={r.id}><div className="paneltop"><b>{(r.role==='srm'||r.role==='gm')?'★ General Manager (GM)':r.by}</b><span className={'badge '+((r.status==='srm_direction'||r.status==='gm_direction')?'srm-badge':r.status)}>{(r.status==='srm_direction'||r.status==='gm_direction')?'GM Direction':r.status}</span></div><small>{(r.role==='srm'||r.role==='gm')?r.by+' · ':''}Report revision {r.revision} · {r.at}</small><p>{r.text}</p></div>)}{!data.reviews.some((r:any)=>r.sol===sol)&&<p>No reviews yet.</p>}</div></>}</>}
+{sub&&<div className="panel"><div className="paneltop"><div><h2>Submitted performance</h2></div><button type="button" className="secondary" onClick={()=>openReviewImageModal(sol, '', 'submitted')} style={{display:'inline-flex',alignItems:'center',gap:6,fontSize:12,fontWeight:700,color:'#0284c7',borderColor:'#bae6fd',background:'#f0f9ff'}}><Sparkles size={13}/> View / Share Performance Scorecard Image</button></div><div className="grid4">{['sb_opened','sb_funded','cd_opened','cd_funded'].map(k=><div key={k}><small>{k.replace('_',' ').toUpperCase()}</small><h2>{fmt(sub.values[k])}</h2></div>)}</div><div style={{marginTop:12,padding:'10px 14px',background:'#f8fafc',borderRadius:8,border:'1px solid #e2e8f0'}}><div style={{fontSize:11,fontWeight:700,color:'#475569',textTransform:'uppercase',letterSpacing:'0.5px'}}>Deposit Growth Today</div><div className="grid3" style={{marginTop:6}}><div><small>SB Growth Today</small><b style={{display:'block',fontSize:15,color:Number(sub.values.sb_growth_today||0)<0?'#dc2626':'#059669'}}>₹{fmt(sub.values.sb_growth_today||0)}</b></div><div><small>CD Growth Today</small><b style={{display:'block',fontSize:15,color:Number(sub.values.cd_growth_today||0)<0?'#dc2626':'#059669'}}>₹{fmt(sub.values.cd_growth_today||0)}</b></div><div><small>TD Growth Today</small><b style={{display:'block',fontSize:15,color:Number(sub.values.td_growth_today||0)<0?'#dc2626':'#059669'}}>₹{fmt(sub.values.td_growth_today||0)}</b></div></div></div><p>{sub.values.notes||'No additional notes.'}</p>{Object.entries(sub.values.plans||{}).map(([p,plan]:any)=><div key={p}><h3>{p.toUpperCase()} positivity commitment · {plan.date}</h3>{plan.funds.map((f:any,i:number)=><p key={i}>{f.reference} · ₹{fmt(f.amount)} · {f.date}</p>)}</div>)}<div className="grid3">{['sma0','sma1','sma2'].map(p=><p key={p}>{p.toUpperCase()}: {sub.values[p+'_count']} eliminated · ₹{fmt(sub.values[p+'_amount'])}</p>)}</div><div className="grid3">{sanctionSectors.map((s:any)=><p key={s}><b>{sectorLabels[s]} Sanctions today</b>: {fmt(sub.values['sanction_'+s+'_count'])} accts · ₹{fmt(sub.values['sanction_'+s+'_amount'])}</p>)}</div><div className="grid3" style={{marginTop:8}}>{sanctionSectors.map((s:any)=><p key={'lpc_'+s} style={{color:'#0284c7'}}><b>{sectorLabels[s]} LPC Forwarded</b>: {fmt(sub.values['lpc_'+s+'_count']||0)} accts · ₹{fmt(sub.values['lpc_'+s+'_amount']||0)}</p>)}</div>{(()=>{const bFund=(data?.fundingAccounts||[]).filter((a:any)=>a.sol===sol);const bDone=bFund.filter((a:any)=>a.funded);const bAmt=bDone.reduce((acc:number,a:any)=>acc+Number(a.funded_amount||0),0);return <div style={{marginTop:10,fontSize:12,color:'#0369a1',background:'#f0f9ff',padding:'8px 12px',borderRadius:6,border:'1px solid #bae6fd'}}><b>Low Balance Funding (Live Sync)</b>: {bDone.length} of {bFund.length} accounts funded (₹{fmt(bAmt)} mobilized)</div>;})()}{active.map((c:any)=><p key={c.id}>{c.title}: {sub.values['camp_'+c.id]} added today</p>)}</div>}
+{sub&&canReview&&<div className="panel"><h2>{isGm?'General Manager (GM) Executive Direction':'Reply to this entry'}</h2><div className="mention"><Users size={16}/>Branch head selected automatically · {branch?.name} ({sol})</div><label>{isGm?'GM remarks / instructions':'Reviewer remarks'}<textarea value={reply} onChange={e=>setReply(e.target.value)} placeholder={isGm?'Provide executive direction or instructions to the branch head…':'Write your feedback or request a clarification…'}/></label><label>Review outcome<select value={reviewStatus} onChange={e=>setReviewStatus(e.target.value)}>{isGm&&<option value="gm_direction">★ GM Direction / Instruction</option>}<option value="reviewed">Reviewed</option><option value="clarification">Clarification required</option></select></label><p className="muted">The review is saved immediately. Group delivery waits for a configured connection and a verified branch-head mapping.</p><div style={{display:'flex',gap:10,flexWrap:'wrap',alignItems:'center'}}><button disabled={busy} onClick={async()=>{const replyTxt=reply;const revStat=reviewStatus;if(await act({action:'review',sol,text:reply,status:reviewStatus,revision:sub.revision},isGm&&reviewStatus==='gm_direction'?'GM direction saved and queued for group delivery.':'Review saved. The group reply is queued; the administrator can check delivery status.')){setReply('');openReviewImageModal(sol,replyTxt,revStat);}}}><Send size={16}/>{isGm&&reviewStatus==='gm_direction'?'Issue GM Direction':'Save review & queue group reply'}</button><button type="button" className="secondary" onClick={()=>openReviewImageModal(sol,reply,reviewStatus)} style={{display:'inline-flex',alignItems:'center',gap:6,color:'#15803d',borderColor:'#86efac',background:'#f0fdf4',fontWeight:700,padding:'10px 16px',borderRadius:8}}><MessageSquare size={16}/> Post Review to WhatsApp Group (with Image)</button></div></div>}
+<div className="panel"><h2>Review history</h2>{data.reviews.filter((r:any)=>r.sol===sol).map((r:any)=><div className={"review "+(r.role==='srm'||r.role==='gm'||r.status==='srm_direction'||r.status==='gm_direction'?'srm-review-card':'')} key={r.id}><div className="paneltop"><b>{(r.role==='srm'||r.role==='gm')?'★ General Manager (GM)':r.by}</b><div style={{display:'flex',alignItems:'center',gap:8}}><span className={'badge '+((r.status==='srm_direction'||r.status==='gm_direction')?'srm-badge':r.status)}>{(r.status==='srm_direction'||r.status==='gm_direction')?'GM Direction':r.status}</span><button type="button" className="secondary" onClick={()=>openReviewImageModal(sol,r.text,r.status,r.by,r.role,r.at)} style={{display:'inline-flex',alignItems:'center',gap:5,padding:'3px 8px',fontSize:11,fontWeight:700,color:'#15803d',borderColor:'#86efac',background:'#f0fdf4'}} title="Post this review to WhatsApp Group with Performance Scorecard Image"><MessageSquare size={12}/> Post to WhatsApp Group (with Image)</button></div></div><small>{(r.role==='srm'||r.role==='gm')?r.by+' · ':''}Report revision {r.revision} · {r.at}</small><p>{r.text}</p></div>)}{!data.reviews.some((r:any)=>r.sol===sol)&&<p>No reviews yet.</p>}</div></>}</>}
 {tab==='Publish data'&&isAdmin&&<><div className="steps"><span className="on">1 · Download template</span><ChevronRight size={16}/><span>2 · Upload & validate</span><ChevronRight size={16}/><span>3 · Publish & request reports</span></div><div className="panel"><div className="paneltop"><div><h2>Upload the confirmed branch position</h2><p>CSV format · All 56 branches · Monetary values in rupees</p></div><button className="secondary" onClick={template}><Download size={16}/>Download blank template</button></div><div className="uploadzone"><Upload size={30}/><h3>{importName||'Choose your daily data file'}</h3><p>Include account openings, growth, SMA, loan sanctions (Retail, Agri, MSME) and active campaign figures.</p><input aria-label="Upload daily CSV" type="file" accept=".csv,text/csv" onChange={e=>e.target.files?.[0]&&upload(e.target.files[0])}/></div>{rows.length>0&&<div className="alert success"><CheckCircle2 size={18}/>{rows.length} branches validated. No duplicate SOLs or missing required values.</div>}<div className="grid3">{[['Source cutoff','cutoff','date'],['Submission deadline (IST)','deadline','time'],['Growth comparison baseline','baseline','text']].map(([label,k,type])=><label key={k}>{label}<input type={type} value={meta[k]} onChange={e=>setMeta({...meta,[k]:e.target.value})} placeholder={k==='baseline'?'e.g. balance at 31 March 2026':''}/></label>)}</div><label>Funded-account definition from your source<input value={meta.fundedDefinition} onChange={e=>setMeta({...meta,fundedDefinition:e.target.value})} placeholder="Enter the definition used in the official source report"/></label>{data.pub&&<label>Correction reason (required)<input value={meta.reason} onChange={e=>setMeta({...meta,reason:e.target.value})}/></label>}<button disabled={!rows.length||busy} onClick={()=>act({action:'publish',rows,...meta},'Daily position published. Submission request recorded in message queue.')}><Upload size={16}/>{data.pub?'Publish corrected version':'Publish & request submissions'}</button><p className="muted">Publication opens reporting immediately. Re-publication preserves history and does not duplicate the initial group request.</p></div>{rows.length>0&&<div className="panel"><h2>Upload preview</h2><div className="tablewrap"><table><thead><tr><th>SOL</th><th>SB MTD OPENED</th><th>CD MTD OPENED</th><th>SB GROWTH ₹</th><th>CD GROWTH ₹</th><th>RETAIL SANCTIONS ₹</th><th>AGRI SANCTIONS ₹</th><th>MSME SANCTIONS ₹</th></tr></thead><tbody>{rows.slice(0,8).map(r=><tr key={r.sol}><td>{r.sol}</td><td>{r.sb_mtd_opened}</td><td>{r.cd_mtd_opened}</td><td>{r.sb_growth}</td><td>{r.cd_growth}</td><td>{r.sanction_retail_mtd_amount}</td><td>{r.sanction_agri_mtd_amount}</td><td>{r.sanction_msme_mtd_amount}</td></tr>)}</tbody></table></div><p>First 8 of {rows.length} rows shown.</p></div>}</>}
 {tab==='Login activity'&&(isAdmin||isGm||data.user.role==='reviewer')&&<>
   <div className="stats">
@@ -1790,6 +1893,234 @@ return <div className={"shell role-"+data.user.role}><aside><div className="bran
           className="button"
           onClick={() => { setShowReminderModal(false); setReminderSeqIdx(null); }}
           style={{ padding: '8px 20px', fontSize: 13 }}
+        >
+          Done
+        </button>
+      </div>
+    </div>
+  </div>
+)}
+
+{reviewImageModal?.isOpen && (
+  <div
+    style={{
+      position: 'fixed',
+      top: 0,
+      left: 0,
+      right: 0,
+      bottom: 0,
+      background: 'rgba(15, 23, 42, 0.75)',
+      zIndex: 99999,
+      display: 'flex',
+      alignItems: 'center',
+      justifyContent: 'center',
+      padding: '16px',
+      backdropFilter: 'blur(4px)',
+    }}
+  >
+    <div
+      style={{
+        background: '#fff',
+        borderRadius: 14,
+        maxWidth: 980,
+        width: '100%',
+        maxHeight: '94vh',
+        display: 'flex',
+        flexDirection: 'column',
+        boxShadow: '0 25px 50px -12px rgba(0, 0, 0, 0.35)',
+        overflow: 'hidden',
+      }}
+    >
+      {/* Header */}
+      <div style={{ padding: '16px 22px', borderBottom: '1px solid #e2e8f0', display: 'flex', justifyContent: 'space-between', alignItems: 'center', background: '#0a3272', color: '#fff' }}>
+        <div>
+          <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+            <span style={{ background: '#25D366', color: '#fff', borderRadius: '50%', width: 28, height: 28, display: 'inline-flex', alignItems: 'center', justifyContent: 'center' }}>
+              <MessageSquare size={16} />
+            </span>
+            <h2 style={{ margin: 0, fontSize: 17, color: '#fff' }}>
+              Branch Performance Scorecard &amp; Review Image
+            </h2>
+            <span style={{ fontSize: 11, background: 'rgba(255,255,255,0.2)', padding: '2px 8px', borderRadius: 10, fontWeight: 700 }}>
+              SOL {reviewImageModal.sol} • {reviewImageModal.branch.name}
+            </span>
+          </div>
+          <p style={{ margin: '4px 0 0', fontSize: 12, color: '#bfdbfe' }}>
+            Official infographic image ready to attach in the WhatsApp regional group alongside the review text.
+          </p>
+        </div>
+        <button
+          type="button"
+          onClick={() => setReviewImageModal(null)}
+          style={{ background: 'transparent', border: 'none', color: '#fff', cursor: 'pointer', padding: 6, display: 'inline-flex', alignItems: 'center' }}
+          title="Close"
+        >
+          <X size={20} />
+        </button>
+      </div>
+
+      {/* Body */}
+      <div style={{ padding: '18px 22px', overflowY: 'auto', flex: 1, display: 'flex', flexDirection: 'column', gap: 16 }}>
+        {/* Status Callout Banner */}
+        <div style={{ padding: '12px 16px', background: imgCopied ? '#ecfdf5' : '#eff6ff', border: `1px solid ${imgCopied ? '#86efac' : '#bfdbfe'}`, borderRadius: 8, display: 'flex', alignItems: 'center', justifyContent: 'space-between', flexWrap: 'wrap', gap: 10 }}>
+          <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+            <CheckCircle2 size={18} color={imgCopied ? '#059669' : '#0284c7'} />
+            <span style={{ fontSize: 13, fontWeight: 700, color: imgCopied ? '#166534' : '#1e40af' }}>
+              {imgCopied
+                ? '✅ Performance scorecard image copied to clipboard! In WhatsApp, press Ctrl+V (or Paste) to attach it.'
+                : 'Scorecard image generated. Click Post to WhatsApp Group below to send.'}
+            </span>
+          </div>
+          <div style={{ display: 'flex', gap: 8 }}>
+            <button
+              type="button"
+              className="secondary"
+              onClick={async () => {
+                if (reviewImageModal.blob && typeof ClipboardItem !== 'undefined') {
+                  try {
+                    await navigator.clipboard.write([new ClipboardItem({ 'image/png': reviewImageModal.blob })]);
+                    setImgCopied(true);
+                    setTimeout(() => setImgCopied(false), 2500);
+                  } catch (e) {
+                    console.error(e);
+                  }
+                }
+              }}
+              style={{ fontSize: 12, padding: '4px 10px', background: '#fff' }}
+            >
+              {imgCopied ? '✓ Image Copied' : '📋 Copy Image'}
+            </button>
+            {reviewImageModal.dataUrl && (
+              <a
+                href={reviewImageModal.dataUrl}
+                download={`IOB_Daily_Review_${reviewImageModal.sol}_${date}.png`}
+                className="secondary"
+                style={{ fontSize: 12, padding: '4px 10px', textDecoration: 'none', background: '#fff', display: 'inline-flex', alignItems: 'center', gap: 4 }}
+              >
+                <Download size={13} /> Save PNG
+              </a>
+            )}
+          </div>
+        </div>
+
+        {/* 2-Column Split: Image Preview on Left, WhatsApp Text on Right */}
+        <div style={{ display: 'grid', gridTemplateColumns: 'minmax(300px, 1.2fr) minmax(280px, 1fr)', gap: 18, alignItems: 'start' }}>
+          {/* Left: Generated Canvas Image */}
+          <div style={{ background: '#f8fafc', border: '1px solid #cbd5e1', borderRadius: 8, padding: 12, display: 'flex', flexDirection: 'column', alignItems: 'center' }}>
+            <div style={{ fontSize: 12, fontWeight: 700, color: '#475569', marginBottom: 8, alignSelf: 'flex-start', display: 'flex', alignItems: 'center', gap: 5 }}>
+              <Sparkles size={13} color="#0284c7" /> Generated Performance Scorecard Image
+            </div>
+            {reviewImageModal.loading ? (
+              <div style={{ padding: '60px 20px', color: '#64748b', fontSize: 13, textAlign: 'center' }}>
+                Rendering high-resolution scorecard image...
+              </div>
+            ) : reviewImageModal.dataUrl ? (
+              <img
+                src={reviewImageModal.dataUrl}
+                alt={`Scorecard for ${reviewImageModal.branch.name}`}
+                style={{ width: '100%', height: 'auto', borderRadius: 6, border: '1px solid #e2e8f0', boxShadow: '0 4px 6px -1px rgba(0,0,0,0.1)' }}
+              />
+            ) : (
+              <div style={{ padding: 40, color: '#dc2626' }}>
+                {reviewImageModal.error || 'Failed to render image'}
+              </div>
+            )}
+          </div>
+
+          {/* Right: Message Text & Primary Share Actions */}
+          <div style={{ display: 'flex', flexDirection: 'column', gap: 14 }}>
+            <div style={{ background: '#f0fdf4', border: '1px solid #bbf7d0', borderRadius: 8, padding: 14 }}>
+              <div style={{ fontSize: 13, fontWeight: 700, color: '#166534', marginBottom: 6 }}>
+                Post to WhatsApp Group
+              </div>
+              <p style={{ fontSize: 12, color: '#15803d', margin: '0 0 12px', lineHeight: 1.5 }}>
+                Clicking below opens the WhatsApp group with the structured review summary pre-filled. The scorecard image is already on your clipboard — just press <b>Ctrl+V</b> in WhatsApp to attach it!
+              </p>
+              <button
+                type="button"
+                onClick={() => handleShareReviewToWhatsApp(reviewImageModal)}
+                style={{
+                  width: '100%',
+                  background: '#25D366',
+                  color: '#fff',
+                  border: 'none',
+                  padding: '12px 18px',
+                  borderRadius: 8,
+                  fontSize: 14,
+                  fontWeight: 800,
+                  display: 'inline-flex',
+                  alignItems: 'center',
+                  justifyContent: 'center',
+                  gap: 8,
+                  cursor: 'pointer',
+                  boxShadow: '0 4px 12px rgba(37, 211, 102, 0.3)',
+                }}
+              >
+                <MessageSquare size={18} /> Open WhatsApp Group &amp; Post
+              </button>
+            </div>
+
+            {/* Direct Message to Branch Head */}
+            {getBranchHeadContact(reviewImageModal.sol).hasPhone && (
+              <a
+                href={`https://wa.me/${getBranchHeadContact(reviewImageModal.sol).phone}?text=${encodeURIComponent(reviewImageModal.textSummary)}`}
+                target="_blank"
+                rel="noopener noreferrer"
+                style={{
+                  background: '#fff',
+                  border: '1px solid #86efac',
+                  color: '#15803d',
+                  padding: '8px 14px',
+                  borderRadius: 6,
+                  fontSize: 12,
+                  fontWeight: 700,
+                  textDecoration: 'none',
+                  display: 'inline-flex',
+                  alignItems: 'center',
+                  justifyContent: 'center',
+                  gap: 6,
+                }}
+              >
+                <Phone size={13} /> Send Directly to Branch Head ({getBranchHeadContact(reviewImageModal.sol).displayPhone})
+              </a>
+            )}
+
+            {/* Accompanying Text Box */}
+            <div>
+              <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 6 }}>
+                <span style={{ fontSize: 12, fontWeight: 700, color: '#334155' }}>Accompanying WhatsApp Text</span>
+                <button
+                  type="button"
+                  className="secondary"
+                  onClick={async () => {
+                    await navigator.clipboard.writeText(reviewImageModal.textSummary);
+                    setTxtCopied(true);
+                    setTimeout(() => setTxtCopied(false), 2000);
+                  }}
+                  style={{ fontSize: 11, padding: '3px 8px' }}
+                >
+                  {txtCopied ? <CheckCircle2 size={12} color="#059669" /> : <Copy size={12} />}
+                  {txtCopied ? 'Copied' : 'Copy Text'}
+                </button>
+              </div>
+              <textarea
+                readOnly
+                value={reviewImageModal.textSummary}
+                rows={9}
+                style={{ width: '100%', fontSize: 11, fontFamily: 'monospace', padding: 8, border: '1px solid #cbd5e1', borderRadius: 6, background: '#f8fafc', color: '#334155', lineHeight: 1.4, resize: 'vertical' }}
+              />
+            </div>
+          </div>
+        </div>
+      </div>
+
+      {/* Footer */}
+      <div style={{ padding: '12px 22px', borderTop: '1px solid #e2e8f0', background: '#f8fafc', display: 'flex', justifyContent: 'flex-end', alignItems: 'center' }}>
+        <button
+          type="button"
+          className="button"
+          onClick={() => setReviewImageModal(null)}
+          style={{ padding: '8px 22px', fontSize: 13 }}
         >
           Done
         </button>
