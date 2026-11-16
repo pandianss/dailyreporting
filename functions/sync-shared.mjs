@@ -12,6 +12,7 @@ mkdirSync(srcShared, { recursive: true });
 
 if (!isPost && existsSync(path.join(repoRoot, 'lib', 'portal-core.ts'))) {
   copyFileSync(path.join(repoRoot, 'lib', 'portal-core.ts'), path.join(srcShared, 'portal-core.ts'));
+  copyFileSync(path.join(repoRoot, 'lib', 'scorecard-svg.ts'), path.join(root, 'src', 'scorecard-svg.ts'));
   copyFileSync(path.join(repoRoot, 'app', 'model.mjs'), path.join(srcShared, 'model.mjs'));
   copyFileSync(path.join(repoRoot, 'app', 'branches.json'), path.join(srcShared, 'branches.json'));
 }

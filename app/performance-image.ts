@@ -63,7 +63,7 @@ function wrapText(
 
 export async function generateBranchPerformanceScorecard(
   opts: ScorecardOptions
-): Promise<{ blob: Blob; dataUrl: string; file: File; textSummary: string }> {
+): Promise<{ blob: Blob; dataUrl: string; file: File; textSummary: string; headTextSummary: string; imgUrl: string }> {
   const { branch, headContact, date, sub, snap, review, fundingAccounts = [], campaigns = [], isGm } = opts;
   const values = sub?.values || {};
 
@@ -563,6 +563,7 @@ export async function generateBranchPerformanceScorecard(
   const dataUrl = canvas.toDataURL('image/png');
   const filename = `IOB_Daily_Review_${branch.sol}_${date}.png`;
   const file = new File([blob], filename, { type: 'image/png' });
+  const imgUrl = `https://dailyreport-9265a.web.app/api/card?sol=${branch.sol}&date=${date}`;
 
   // Generate WhatsApp text summary to go along with the image
   const isGmDirection = review?.status === 'gm_direction' || review?.status === 'srm_direction' || isGm;
@@ -586,7 +587,27 @@ export async function generateBranchPerformanceScorecard(
 ${bDone.length > 0 ? `• *Low Balance Funding:* ${bDone.length} accounts (₹${fmt(bAmt)} mobilized)\n` : ''}${campLines.length > 0 ? `• *Campaigns:* ${campLines.join(', ')}\n` : ''}
 ${hasReview ? `${reviewHeading}\n"${reviewText}"\n— ${isGmDirection ? 'General Manager (GM)' : 'Reviewer'}\n` : ''}
 📸 *Branch performance scorecard image attached.*
+(View card: ${imgUrl})
 👉 View confirmed position: https://dailyreport-9265a.web.app/?date=${date}&sol=${branch.sol}`;
 
-  return { blob, dataUrl, file, textSummary };
+  const headTextSummary =
+`Dear ${headContact.name},
+Greetings from Regional Office.
+
+*Daily Performance Review & Feedback for ${branch.name} (SOL ${branch.sol}) on ${date}:*
+
+📊 *DATA SUBMITTED TODAY:*
+• *SB Growth Today:* ${sbToday >= 0 ? '+' : ''}₹${fmt(sbToday)} (Opened: +${sbOpened} [${sbFunded} funded])
+• *CD Growth Today:* ${cdToday >= 0 ? '+' : ''}₹${fmt(cdToday)} (Opened: +${cdOpened} [${cdFunded} funded])
+• *TD Growth Today:* ${tdToday >= 0 ? '+' : ''}₹${fmt(tdToday)}
+• *Loan Sanctions Today:* ₹${fmt(totalSancAmt)} (${totalSancCnt} loans)
+• *LPC Forwarded Today:* ₹${fmt(totalLpcAmt)} (${totalLpcCnt} proposals)
+• *SMA Eliminations Today:* ₹${fmt(totalSmaAmt)} (${totalSmaCnt} accounts)
+${bDone.length > 0 ? `• *Low Balance Funding:* ${bDone.length} accounts (₹${fmt(bAmt)} mobilized)\n` : ''}${campLines.length > 0 ? `• *Campaigns:* ${campLines.join(', ')}\n` : ''}
+${hasReview ? `${reviewHeading}\n"${reviewText}"\n— ${isGmDirection ? 'General Manager (GM)' : 'Reviewer'}\n` : ''}
+📸 *Your Day's Performance Scorecard Image is attached.*
+(View online card: ${imgUrl})
+👉 View your confirmed position: https://dailyreport-9265a.web.app/?date=${date}&sol=${branch.sol}`;
+
+  return { blob, dataUrl, file, textSummary, headTextSummary, imgUrl };
 }

@@ -399,7 +399,14 @@ async function sendOutboxJob(store: Store, config: PortalConfig, key: string) {
         'Content-Type': 'application/json',
         'Idempotency-Key': key,
       },
-      body: JSON.stringify({ group_id: config.waGroupId, text: job.text, mentions }),
+      body: JSON.stringify({
+        group_id: (job as any).phone ? undefined : config.waGroupId,
+        phone: (job as any).phone || undefined,
+        to: (job as any).phone || undefined,
+        text: job.text,
+        imageUrl: (job as any).imageUrl,
+        mentions,
+      }),
     });
     if (!r.ok) throw new Error('Bridge returned ' + r.status);
     const result: any = await r.json();
@@ -435,19 +442,16 @@ export async function handlePortalGet(
     model.cutoffs(date);
 
     const nowIso = new Date().toISOString();
-    try {
-      await store.put('login:' + date + ':' + auth.user.phone, {
-        date,
-        phone: auth.user.phone,
-        role: auth.user.role,
-        sol: auth.user.sol || null,
-        name: auth.user.name || '',
-        email: auth.user.email || '',
-        lastActive: nowIso,
-      });
-    } catch {
-      // non-blocking
-    }
+    // Non-blocking fire-and-forget so user data fetch starts immediately without delay
+    store.put('login:' + date + ':' + auth.user.phone, {
+      date,
+      phone: auth.user.phone,
+      role: auth.user.role,
+      sol: auth.user.sol || null,
+      name: auth.user.name || '',
+      email: auth.user.email || '',
+      lastActive: nowIso,
+    }).catch(() => {});
 
     const isBranch = auth.user.role === 'branch';
     const isSma = input.portal === 'sma';
@@ -775,22 +779,86 @@ export async function handlePortalPost(
         by: auth.user.email,
         at: now,
       };
-      const key = 'out:review:' + id;
-      await store.batch([
+      const contact: any = await store.get('contact:' + body.sol);
+      const v = sub.values || {};
+      const sbToday = Number(v.sb_growth_today || 0);
+      const cdToday = Number(v.cd_growth_today || 0);
+      const tdToday = Number(v.td_growth_today || 0);
+      const totalSanc = Number(v.sanction_retail_amount || 0) + Number(v.sanction_agri_amount || 0) + Number(v.sanction_msme_amount || 0);
+      const totalLpc = Number(v.lpc_retail_amount || 0) + Number(v.lpc_agri_amount || 0) + Number(v.lpc_msme_amount || 0);
+      const totalSma = Number(v.sma0_amount || 0) + Number(v.sma1_amount || 0) + Number(v.sma2_amount || 0);
+      const imgUrl = `https://dailyreport-9265a.web.app/api/card?sol=${body.sol}&date=${date}`;
+
+      const dataSummary = `*DAY'S PERFORMANCE SUBMITTED:*\n` +
+        `• SB Growth Today: ${sbToday >= 0 ? '+' : ''}₹${Number(sbToday).toLocaleString('en-IN')} (Opened: +${v.sb_opened || 0})\n` +
+        `• CD Growth Today: ${cdToday >= 0 ? '+' : ''}₹${Number(cdToday).toLocaleString('en-IN')} (Opened: +${v.cd_opened || 0})\n` +
+        `• TD Growth Today: ${tdToday >= 0 ? '+' : ''}₹${Number(tdToday).toLocaleString('en-IN')}\n` +
+        `• Sanctions Today: ₹${Number(totalSanc).toLocaleString('en-IN')}\n` +
+        `• LPC Forwarded: ₹${Number(totalLpc).toLocaleString('en-IN')}\n` +
+        `• SMA Resolved: ₹${Number(totalSma).toLocaleString('en-IN')}`;
+
+      const groupText = `*INDIAN OVERSEAS BANK - DINDIGUL REGION*\n` +
+        `*DAILY PERFORMANCE REVIEW · ${date}*\n\n` +
+        `📍 *Branch:* ${branch.name} (SOL ${body.sol})\n` +
+        `👤 *Branch Head:* ${contact?.name || 'Branch Head'}\n` +
+        `📋 *Report Revision:* Revision ${sub.revision}\n\n` +
+        `${dataSummary}\n\n` +
+        `${isGm ? '★ *GM EXECUTIVE DIRECTION:*' : '📝 *REVIEWER FEEDBACK:*'}\n` +
+        `"${review.text}"\n` +
+        `— ${isGm ? 'General Manager (GM)' : 'Reviewer'} (${auth.user.email})\n\n` +
+        `📸 *Scorecard Image:* ${imgUrl}\n` +
+        `👉 https://dailyreport-9265a.web.app/?date=${date}&sol=${body.sol}`;
+
+      const headText = `Dear ${contact?.name || 'Branch Head'},\n` +
+        `Greetings from Regional Office.\n\n` +
+        `*Daily Performance Review Feedback for ${branch.name} (SOL ${body.sol}) on ${date}:*\n\n` +
+        `${dataSummary}\n\n` +
+        `${isGm ? '★ *GM EXECUTIVE DIRECTION:*' : '📝 *REVIEW FEEDBACK:*'}\n` +
+        `"${review.text}"\n` +
+        `— ${isGm ? 'General Manager (GM)' : 'Reviewer'}\n\n` +
+        `📸 *Your Day's Performance Scorecard Image:* ${imgUrl}\n` +
+        `👉 View your confirmed position: https://dailyreport-9265a.web.app/?date=${date}&sol=${body.sol}`;
+
+      const keyGroup = 'out:review:' + id;
+      const keyHead = 'out:review-head:' + id;
+
+      const batchOps: any[] = [
         { type: 'put', key: 'review:' + date + ':' + id, value: review },
         {
           type: 'put',
-          key,
+          key: keyGroup,
           value: {
             date,
             sol: body.sol,
-            type: isGm ? 'GM Direction' : 'Review reply',
+            type: isGm ? 'GM Direction (Group)' : 'Review reply (Group)',
             status: 'pending',
-            text: `${branch.name} (${body.sol}) • ${date}\n${isGm ? '★ GM DIRECTION:\n' : ''}${review.text}\n${isGm ? 'General Manager (GM): ' : 'Reviewer: '}${auth.user.email}`,
+            text: groupText,
+            imageUrl: imgUrl,
           },
         },
-      ]);
-      await sendOutboxJob(store, config, key);
+      ];
+
+      if (contact?.phone) {
+        batchOps.push({
+          type: 'put',
+          key: keyHead,
+          value: {
+            date,
+            sol: body.sol,
+            phone: contact.phone,
+            type: isGm ? 'GM Direction (Branch Head)' : 'Review reply (Branch Head)',
+            status: 'pending',
+            text: headText,
+            imageUrl: imgUrl,
+          },
+        });
+      }
+
+      await store.batch(batchOps);
+      await sendOutboxJob(store, config, keyGroup);
+      if (contact?.phone) {
+        await sendOutboxJob(store, config, keyHead);
+      }
     } else if (action === 'upload-repayments') {
       requireAdmin();
       const validated = model.validateRepayments(body.rows, branches);

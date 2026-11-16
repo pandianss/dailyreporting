@@ -15,6 +15,7 @@ import {
   type PortalConfig,
 } from './shared/portal-core.js';
 import * as model from './shared/model.mjs';
+import { renderScorecardSvg } from './scorecard-svg.js';
 
 initializeApp();
 const db = getFirestore();
@@ -100,6 +101,31 @@ app.post('/api/portal', async (req, res) => {
     body: req.body,
   });
   res.status(result.status).json(result.body);
+});
+
+app.get('/api/card', async (req, res) => {
+  try {
+    const sol = typeof req.query.sol === 'string' ? req.query.sol : '';
+    const date = typeof req.query.date === 'string' ? req.query.date : '';
+    if (!sol || !date) {
+      res.status(400).send('sol and date query parameters required');
+      return;
+    }
+    const branch = branches.find((b: any) => b.sol === sol);
+    const sub = await store.get('sub:' + date + ':' + sol);
+    const pub = await store.get('pub:' + date);
+    const snap = pub?.rows?.find((r: any) => r.sol === sol);
+    const reviews = await store.list('review:' + date + ':');
+    const review = reviews.filter((r: any) => r.sol === sol).slice(-1)[0] || null;
+    const contact = await store.get('contact:' + sol);
+
+    const svg = renderScorecardSvg({ sol, date, branch, sub, snap, review, contact });
+    res.set('Content-Type', 'image/svg+xml; charset=utf-8');
+    res.set('Cache-Control', 'public, max-age=120');
+    res.send(svg);
+  } catch (err: any) {
+    res.status(500).send('Failed to generate scorecard image: ' + err.message);
+  }
 });
 
 app.use((err: any, _req: express.Request, res: express.Response, _next: express.NextFunction) => {

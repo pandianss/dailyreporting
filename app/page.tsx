@@ -205,6 +205,7 @@ function getGroupReminderMsg(tabType: string) {
 const [reviewImageModal, setReviewImageModal] = useState<any>(null);
 const [imgCopied, setImgCopied] = useState(false);
 const [txtCopied, setTxtCopied] = useState(false);
+const [reviewModalTarget, setReviewModalTarget] = useState<'group' | 'head'>('group');
 
 async function openReviewImageModal(targetSol: string, customReviewText?: string, customReviewStatus?: string, customBy?: string, customRole?: string, customAt?: string) {
   const targetBranch = data?.branches?.find((b: any) => b.sol === targetSol) || { sol: targetSol, name: 'Branch ' + targetSol };
@@ -237,9 +238,12 @@ async function openReviewImageModal(targetSol: string, customReviewText?: string
     blob: null,
     file: null,
     textSummary: '',
+    headTextSummary: '',
+    imgUrl: '',
   });
   setImgCopied(false);
   setTxtCopied(false);
+  setReviewModalTarget('group');
 
   try {
     const res = await generateBranchPerformanceScorecard({
@@ -270,6 +274,8 @@ async function openReviewImageModal(targetSol: string, customReviewText?: string
       blob: res.blob,
       file: res.file,
       textSummary: res.textSummary,
+      headTextSummary: res.headTextSummary,
+      imgUrl: res.imgUrl,
     } : null);
   } catch (err: any) {
     console.error('Failed to generate performance scorecard image:', err);
@@ -277,8 +283,12 @@ async function openReviewImageModal(targetSol: string, customReviewText?: string
   }
 }
 
-async function handleShareReviewToWhatsApp(modalData: any) {
-  if (!modalData?.file) return;
+async function handleShareReviewToWhatsApp(modalData: any, target: 'group' | 'head' = 'group') {
+  if (!modalData?.file && !modalData?.blob) return;
+
+  const isHead = target === 'head';
+  const text = isHead ? (modalData.headTextSummary || modalData.textSummary) : modalData.textSummary;
+  const contact = getBranchHeadContact(modalData.sol);
 
   try {
     if (typeof ClipboardItem !== 'undefined' && navigator.clipboard && navigator.clipboard.write && modalData.blob) {
@@ -291,7 +301,7 @@ async function handleShareReviewToWhatsApp(modalData: any) {
     try {
       await (navigator as any).share({
         title: `IOB Daily Performance - ${modalData.branch.name}`,
-        text: modalData.textSummary,
+        text,
         files: [modalData.file],
       });
       return;
@@ -301,12 +311,37 @@ async function handleShareReviewToWhatsApp(modalData: any) {
     }
   }
 
-  window.open(`https://wa.me/?text=${encodeURIComponent(modalData.textSummary)}`, '_blank');
+  const url = (isHead && contact.hasPhone)
+    ? `https://wa.me/${contact.phone}?text=${encodeURIComponent(text)}`
+    : `https://wa.me/?text=${encodeURIComponent(text)}`;
+  window.open(url, '_blank');
+}
+
+async function handleShareReviewToBoth(modalData: any) {
+  if (!modalData) return;
+  const contact = getBranchHeadContact(modalData.sol);
+  const headText = modalData.headTextSummary || modalData.textSummary;
+  const groupText = modalData.textSummary;
+
+  try {
+    if (typeof ClipboardItem !== 'undefined' && navigator.clipboard && navigator.clipboard.write && modalData.blob) {
+      await navigator.clipboard.write([new ClipboardItem({ 'image/png': modalData.blob })]);
+      setImgCopied(true);
+    }
+  } catch {}
+
+  if (contact.hasPhone) {
+    window.open(`https://wa.me/${contact.phone}?text=${encodeURIComponent(headText)}`, '_blank');
+  }
+
+  setTimeout(() => {
+    window.open(`https://wa.me/?text=${encodeURIComponent(groupText)}`, '_blank');
+  }, 1200);
 }
 async function load(isSilent=false){const requestId=++loadId.current;if(!isSilent)setError('');try{const r=await fetch('/api/portal?date='+date+'&portal=daily&_t='+Date.now(),{cache:'no-store'}),j:any=await r.json();if(requestId!==loadId.current)return;if(!r.ok)throw Error(j.error);setData(j);if(j.user.role==='branch'){setSol(j.user.sol);setValues((prev:any)=>Object.keys(prev).length?prev:(j.subs.find((x:any)=>x.sol===j.user.sol)?.values||{}));}if(!routed.current){setTab(j.user.role==='branch'?'Branch report':j.user.role==='reviewer'?'Review desk':(j.user.role==='srm'||j.user.role==='gm')?'Overview':'Publish data');setReviewStatus((j.user.role==='srm'||j.user.role==='gm')?'gm_direction':'reviewed');routed.current=true;}}catch(e:any){if(!isSilent)setError(e.message);if(/sign.in|session|account changed/i.test(e.message))onExit();}}
 useEffect(()=>{const d=new URLSearchParams(window.location.search).get('date');if(d){try{cutoffs(d);setDate(d);}catch{}}},[]);
 useEffect(()=>{load();setValues({});setReply('');setRows([]);setMeta((m:any)=>({...m,cutoff:cutoffs(date).yesterday}));},[date]);
-useEffect(()=>{const timer=setInterval(()=>{if(document.visibilityState==='visible')load(true);},8000);const onFocus=()=>load(true);const onVisibility=()=>{if(document.visibilityState==='visible')load(true);};window.addEventListener('focus',onFocus);document.addEventListener('visibilitychange',onVisibility);return ()=>{clearInterval(timer);window.removeEventListener('focus',onFocus);document.removeEventListener('visibilitychange',onVisibility);};},[date]);
+useEffect(()=>{const timer=setInterval(()=>{if(document.visibilityState==='visible')load(true);},15000);const onFocus=()=>load(true);const onVisibility=()=>{if(document.visibilityState==='visible')load(true);};window.addEventListener('focus',onFocus);document.addEventListener('visibilitychange',onVisibility);return ()=>{clearInterval(timer);window.removeEventListener('focus',onFocus);document.removeEventListener('visibilitychange',onVisibility);};},[date]);
 async function act(body:any,message:string){setBusy(true);setError('');setNotice('');try{const r=await fetch('/api/portal',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({date,...body})}),j:any=await r.json();if(!r.ok)throw Error(j.error);await load();setNotice(message);return true;}catch(e:any){setError(e.message);return false;}finally{setBusy(false);}}
 function openBranch(s:string,t='Branch report'){setSol(s);setTab(t);const old=data.subs.find((x:any)=>x.sol===s);setValues(old?.values||{});setReply('');}
 const active=data?.pub?.campaigns||data?.campaigns?.filter((c:any)=>c.start<=date&&c.end>=date)||[];
@@ -2027,73 +2062,179 @@ return <div className={"shell role-"+data.user.role}><aside><div className="bran
             )}
           </div>
 
-          {/* Right: Message Text & Primary Share Actions */}
+          {/* Right: Dual Recipient Controls (Official Group & Branch Head) */}
           <div style={{ display: 'flex', flexDirection: 'column', gap: 14 }}>
-            <div style={{ background: '#f0fdf4', border: '1px solid #bbf7d0', borderRadius: 8, padding: 14 }}>
-              <div style={{ fontSize: 13, fontWeight: 700, color: '#166534', marginBottom: 6 }}>
-                Post to WhatsApp Group
-              </div>
-              <p style={{ fontSize: 12, color: '#15803d', margin: '0 0 12px', lineHeight: 1.5 }}>
-                Clicking below opens the WhatsApp group with the structured review summary pre-filled. The scorecard image is already on your clipboard — just press <b>Ctrl+V</b> in WhatsApp to attach it!
-              </p>
+            {/* Recipient Mode Tabs */}
+            <div style={{ display: 'flex', gap: 6, background: '#f1f5f9', padding: 4, borderRadius: 8, border: '1px solid #cbd5e1' }}>
               <button
                 type="button"
-                onClick={() => handleShareReviewToWhatsApp(reviewImageModal)}
+                onClick={() => setReviewModalTarget('group')}
                 style={{
-                  width: '100%',
-                  background: '#25D366',
-                  color: '#fff',
-                  border: 'none',
-                  padding: '12px 18px',
-                  borderRadius: 8,
-                  fontSize: 14,
-                  fontWeight: 800,
-                  display: 'inline-flex',
-                  alignItems: 'center',
-                  justifyContent: 'center',
-                  gap: 8,
-                  cursor: 'pointer',
-                  boxShadow: '0 4px 12px rgba(37, 211, 102, 0.3)',
-                }}
-              >
-                <MessageSquare size={18} /> Open WhatsApp Group &amp; Post
-              </button>
-            </div>
-
-            {/* Direct Message to Branch Head */}
-            {getBranchHeadContact(reviewImageModal.sol).hasPhone && (
-              <a
-                href={`https://wa.me/${getBranchHeadContact(reviewImageModal.sol).phone}?text=${encodeURIComponent(reviewImageModal.textSummary)}`}
-                target="_blank"
-                rel="noopener noreferrer"
-                style={{
-                  background: '#fff',
-                  border: '1px solid #86efac',
-                  color: '#15803d',
-                  padding: '8px 14px',
-                  borderRadius: 6,
+                  flex: 1,
+                  padding: '7px 10px',
                   fontSize: 12,
                   fontWeight: 700,
-                  textDecoration: 'none',
+                  borderRadius: 6,
+                  border: 'none',
+                  cursor: 'pointer',
                   display: 'inline-flex',
                   alignItems: 'center',
                   justifyContent: 'center',
                   gap: 6,
+                  background: reviewModalTarget === 'group' ? '#0a3272' : 'transparent',
+                  color: reviewModalTarget === 'group' ? '#fff' : '#475569',
+                  boxShadow: reviewModalTarget === 'group' ? '0 1px 3px rgba(0,0,0,0.2)' : 'none',
                 }}
               >
-                <Phone size={13} /> Send Directly to Branch Head ({getBranchHeadContact(reviewImageModal.sol).displayPhone})
-              </a>
+                <Users size={14} /> Official Group
+              </button>
+              <button
+                type="button"
+                onClick={() => setReviewModalTarget('head')}
+                style={{
+                  flex: 1,
+                  padding: '7px 10px',
+                  fontSize: 12,
+                  fontWeight: 700,
+                  borderRadius: 6,
+                  border: 'none',
+                  cursor: 'pointer',
+                  display: 'inline-flex',
+                  alignItems: 'center',
+                  justifyContent: 'center',
+                  gap: 6,
+                  background: reviewModalTarget === 'head' ? '#0a3272' : 'transparent',
+                  color: reviewModalTarget === 'head' ? '#fff' : '#475569',
+                  boxShadow: reviewModalTarget === 'head' ? '0 1px 3px rgba(0,0,0,0.2)' : 'none',
+                }}
+              >
+                <Phone size={14} /> Branch Head
+              </button>
+            </div>
+
+            {/* Tab 1: Official WhatsApp Group */}
+            {reviewModalTarget === 'group' && (
+              <div style={{ background: '#f0fdf4', border: '1px solid #bbf7d0', borderRadius: 8, padding: 14, display: 'flex', flexDirection: 'column', gap: 10 }}>
+                <div>
+                  <div style={{ fontSize: 13, fontWeight: 700, color: '#166534', display: 'flex', alignItems: 'center', gap: 6 }}>
+                    <Users size={15} color="#166534" /> Post Review to Regional WhatsApp Group
+                  </div>
+                  <p style={{ fontSize: 12, color: '#15803d', margin: '4px 0 0', lineHeight: 1.4 }}>
+                    Posts the branch's complete performance breakdown and review feedback to the official Regional WhatsApp Group. Scorecard image is copied on your clipboard (press <b>Ctrl+V</b> to attach).
+                  </p>
+                </div>
+                <button
+                  type="button"
+                  onClick={() => handleShareReviewToWhatsApp(reviewImageModal, 'group')}
+                  style={{
+                    width: '100%',
+                    background: '#25D366',
+                    color: '#fff',
+                    border: 'none',
+                    padding: '12px 16px',
+                    borderRadius: 8,
+                    fontSize: 14,
+                    fontWeight: 800,
+                    display: 'inline-flex',
+                    alignItems: 'center',
+                    justifyContent: 'center',
+                    gap: 8,
+                    cursor: 'pointer',
+                    boxShadow: '0 4px 12px rgba(37, 211, 102, 0.3)',
+                  }}
+                >
+                  <MessageSquare size={17} /> Open WhatsApp Group &amp; Post
+                </button>
+              </div>
             )}
 
-            {/* Accompanying Text Box */}
+            {/* Tab 2: Branch Head 1-on-1 Direct WhatsApp */}
+            {reviewModalTarget === 'head' && (() => {
+              const headContact = getBranchHeadContact(reviewImageModal.sol);
+              return (
+                <div style={{ background: '#eff6ff', border: '1px solid #bfdbfe', borderRadius: 8, padding: 14, display: 'flex', flexDirection: 'column', gap: 10 }}>
+                  <div>
+                    <div style={{ fontSize: 13, fontWeight: 700, color: '#1e40af', display: 'flex', alignItems: 'center', gap: 6 }}>
+                      <Phone size={15} color="#1d4ed8" /> Send Feedback to Branch Head
+                    </div>
+                    <div style={{ fontSize: 12, fontWeight: 600, color: '#2563eb', marginTop: 2 }}>
+                      {headContact.name ? `${headContact.name} · ` : ''}{headContact.displayPhone}
+                    </div>
+                    <p style={{ fontSize: 12, color: '#1e40af', margin: '4px 0 0', lineHeight: 1.4 }}>
+                      Sends a personalized 1-on-1 feedback message directly to the Branch Head's registered WhatsApp with the full data summary and scorecard infographic.
+                    </p>
+                  </div>
+                  {headContact.hasPhone ? (
+                    <button
+                      type="button"
+                      onClick={() => handleShareReviewToWhatsApp(reviewImageModal, 'head')}
+                      style={{
+                        width: '100%',
+                        background: '#1d4ed8',
+                        color: '#fff',
+                        border: 'none',
+                        padding: '12px 16px',
+                        borderRadius: 8,
+                        fontSize: 14,
+                        fontWeight: 800,
+                        display: 'inline-flex',
+                        alignItems: 'center',
+                        justifyContent: 'center',
+                        gap: 8,
+                        cursor: 'pointer',
+                        boxShadow: '0 4px 12px rgba(29, 78, 216, 0.3)',
+                      }}
+                    >
+                      <Send size={16} /> Send Direct WhatsApp to Branch Head
+                    </button>
+                  ) : (
+                    <div style={{ fontSize: 12, color: '#b91c1c', background: '#fef2f2', border: '1px solid #fecaca', padding: '8px 10px', borderRadius: 6 }}>
+                      ⚠️ No mobile number registered for SOL {reviewImageModal.sol}. Update mobile in Branch Directory to send direct 1-on-1 messages.
+                    </div>
+                  )}
+                </div>
+              );
+            })()}
+
+            {/* Quick Sequential Action: Send to Both */}
+            {getBranchHeadContact(reviewImageModal.sol).hasPhone && (
+              <button
+                type="button"
+                className="secondary"
+                onClick={() => handleShareReviewToBoth(reviewImageModal)}
+                style={{
+                  width: '100%',
+                  padding: '9px 12px',
+                  fontSize: 12,
+                  fontWeight: 700,
+                  display: 'inline-flex',
+                  alignItems: 'center',
+                  justifyContent: 'center',
+                  gap: 6,
+                  color: '#0a3272',
+                  borderColor: '#93c5fd',
+                  background: '#f8fafc',
+                }}
+                title="First sends 1-on-1 to Branch Head, then opens the Regional WhatsApp Group"
+              >
+                <Sparkles size={13} color="#0284c7" /> ⚡ Send Feedback to Both (Branch Head &amp; Group)
+              </button>
+            )}
+
+            {/* Accompanying Text Box (Switches text according to selected recipient) */}
             <div>
               <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 6 }}>
-                <span style={{ fontSize: 12, fontWeight: 700, color: '#334155' }}>Accompanying WhatsApp Text</span>
+                <span style={{ fontSize: 12, fontWeight: 700, color: '#334155' }}>
+                  {reviewModalTarget === 'head' ? 'Branch Head WhatsApp Text' : 'Official Group WhatsApp Text'}
+                </span>
                 <button
                   type="button"
                   className="secondary"
                   onClick={async () => {
-                    await navigator.clipboard.writeText(reviewImageModal.textSummary);
+                    const txtToCopy = reviewModalTarget === 'head'
+                      ? (reviewImageModal.headTextSummary || reviewImageModal.textSummary)
+                      : reviewImageModal.textSummary;
+                    await navigator.clipboard.writeText(txtToCopy);
                     setTxtCopied(true);
                     setTimeout(() => setTxtCopied(false), 2000);
                   }}
@@ -2105,8 +2246,12 @@ return <div className={"shell role-"+data.user.role}><aside><div className="bran
               </div>
               <textarea
                 readOnly
-                value={reviewImageModal.textSummary}
-                rows={9}
+                value={
+                  reviewModalTarget === 'head'
+                    ? (reviewImageModal.headTextSummary || reviewImageModal.textSummary)
+                    : reviewImageModal.textSummary
+                }
+                rows={8}
                 style={{ width: '100%', fontSize: 11, fontFamily: 'monospace', padding: 8, border: '1px solid #cbd5e1', borderRadius: 6, background: '#f8fafc', color: '#334155', lineHeight: 1.4, resize: 'vertical' }}
               />
             </div>
