@@ -87,6 +87,7 @@ export default function FundingPortal() {
   }
 
   useEffect(() => {
+    document.title = 'IOB | Low Balance Accounts Funding Portal';
     checkAuth();
   }, []);
 
@@ -468,11 +469,11 @@ export default function FundingPortal() {
           <img src="/logo.svg" alt="Indian Overseas Bank Logo" className="sitelogo" />
           <div>
             Indian Overseas Bank
-            <small>DINDIGUL REGION</small>
+            <small>LOW BALANCE ACCOUNTS FUNDING</small>
           </div>
         </div>
 
-        <div className="navlabel">ACCOUNT FUNDING DESK</div>
+        <div className="navlabel">FUNDING MOBILIZATION WORKSPACE</div>
         <nav>
           <button
             className={tab === 'Low balance accounts' ? 'selected' : ''}

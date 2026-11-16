@@ -158,6 +158,7 @@ export default function SmaPortal() {
   }
 
   useEffect(() => {
+    document.title = 'IOB | SMA Prevention & Recovery Portal';
     checkAuth();
   }, []);
 
@@ -562,7 +563,7 @@ export default function SmaPortal() {
       if (r.balance !== null && r.balance !== undefined) {
         grp.totalBalance += Number(r.balance);
       }
-      if (r.due_date === date) {
+      if (r.due_date === date && due > 0) {
         grp.todayDue += due;
         if (!r.completed) grp.todayPendingCount++;
       }
@@ -1205,10 +1206,10 @@ export default function SmaPortal() {
           <img src="/logo.svg" alt="Indian Overseas Bank Logo" className="sitelogo" />
           <div>
             Indian Overseas Bank
-            <small>DINDIGUL REGION</small>
+            <small>SMA PREVENTION & RECOVERY</small>
           </div>
         </div>
-        <div className="navlabel">SMA PREVENTION WORKSPACE</div>
+        <div className="navlabel">SMA WORKSPACE</div>
         <nav>
           {navItems.map(([name, Icon]: any) => (
             <button
@@ -2320,7 +2321,7 @@ export default function SmaPortal() {
                               {/* Responsive Account Cards - ZERO horizontal scroll on any mobile device */}
                               <div style={{ display: 'flex', flexDirection: 'column', gap: 10, marginTop: 14 }}>
                                 {grp.accounts.map((r: any) => {
-                                  const isDueToday = r.due_date === date;
+                                  const isDueToday = r.due_date === date && Number(r.due_amount || 0) > 0;
                                   const isPast = r.due_date < date;
                                   return (
                                     <div
