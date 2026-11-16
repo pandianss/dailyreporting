@@ -104,6 +104,102 @@ const [copiedCampGroupMsg, setCopiedCampGroupMsg] = useState(false);
 const [copiedCampBranchSol, setCopiedCampBranchSol] = useState<string | null>(null);
 const [campBranchFilter, setCampBranchFilter] = useState('All');
 const [campBranchSearch, setCampBranchSearch] = useState('');
+
+const [showReminderModal, setShowReminderModal] = useState(false);
+const [reminderTab, setReminderTab] = useState<'pending' | 'login' | 'nil' | 'negative'>('pending');
+const [reminderSeqIdx, setReminderSeqIdx] = useState<number | null>(null);
+const [sentReminderSols, setSentReminderSols] = useState<string[]>([]);
+const [copiedReminderGroup, setCopiedReminderGroup] = useState(false);
+const [copiedReminderSol, setCopiedReminderSol] = useState<string | null>(null);
+const [reminderSearch, setReminderSearch] = useState('');
+
+function getBranchHeadContact(sol: string) {
+  const contact = (data?.contacts || []).find((x: any) => x.sol === sol);
+  const grant = (data?.grants || []).find((x: any) => x.sol === sol);
+  const login = (data?.logins || []).find((x: any) => x.sol === sol);
+  const name = contact?.name || grant?.name || login?.name || 'Branch Head';
+  const rawPhone = contact?.phone || grant?.phone || login?.phone || '';
+  let phone = String(rawPhone || '').replace(/\D/g, '');
+  if (phone.length === 10) phone = '91' + phone;
+  const isE164 = phone.length === 12 && phone.startsWith('91');
+  return {
+    name,
+    phone: isE164 ? phone : '',
+    displayPhone: phone.length === 12 ? phone.slice(2) : phone || '—',
+    hasPhone: isE164,
+  };
+}
+
+const pendingSubBranches = (data?.branches || []).filter((b: any) => !data?.subs?.some((s: any) => s.sol === b.sol));
+const pendingLoginBranchesList = (data?.branches || []).filter((b: any) => !(data?.logins || []).some((l: any) => l.sol === b.sol && l.role === 'branch'));
+const nilOpeningsBranchesList = (data?.branches || []).filter((b: any) => {
+  const s = data?.subs?.find((x: any) => x.sol === b.sol);
+  return s && Number(s.values.sb_opened || 0) === 0 && Number(s.values.cd_opened || 0) === 0;
+});
+const negMtdBranchesList = (data?.branches || []).filter((b: any) => {
+  const r = data?.pub?.rows?.find((x: any) => x.sol === b.sol);
+  return r && (Number(r.sb_growth || 0) < 0 || Number(r.cd_growth || 0) < 0);
+});
+
+const activeReminderList = reminderTab === 'pending'
+  ? pendingSubBranches
+  : reminderTab === 'login'
+  ? pendingLoginBranchesList
+  : reminderTab === 'nil'
+  ? nilOpeningsBranchesList
+  : negMtdBranchesList;
+
+function getIndividualReminderMsg(branch: any, tabType: string) {
+  const { name } = getBranchHeadContact(branch.sol);
+  const cutoffTime = data?.pub?.deadline || '17:00';
+  if (tabType === 'pending') {
+    return `Dear ${name}, Greetings from Regional Office.\n\nThe Daily Performance Report for *${branch.name} (SOL ${branch.sol})* has NOT been submitted yet for today (*${date}*).\n\nKindly fill and submit your daily additions immediately before ${cutoffTime} IST:\n👉 https://dailyreport-9265a.web.app/?date=${date}\n\n— Regional Office, IOB Dindigul`;
+  }
+  if (tabType === 'login') {
+    return `Dear ${name}, Greetings from Regional Office.\n\nThe daily reporting workspace for *${branch.name} (SOL ${branch.sol})* has not been accessed today (*${date}*).\n\nKindly log in using your registered mobile number to review your confirmed position and record today's figures:\n👉 https://dailyreport-9265a.web.app/?date=${date}\n\n— Regional Office, IOB Dindigul`;
+  }
+  if (tabType === 'nil') {
+    return `Dear ${name}, Greetings from Regional Office.\n\nYour Daily Report submission for *${branch.name} (SOL ${branch.sol})* for *${date}* reflects *NIL SB and NIL CD accounts opened today*.\n\nAccount opening is critical for deposit accretion. Please make special efforts to mobilize and fund new accounts before day-end.\n\n— Regional Office, IOB Dindigul`;
+  }
+  const r = data?.pub?.rows?.find((x: any) => x.sol === branch.sol);
+  const sbStr = r && r.sb_growth < 0 ? `SB: -₹${fmt(Math.abs(r.sb_growth))}` : '';
+  const cdStr = r && r.cd_growth < 0 ? `CD: -₹${fmt(Math.abs(r.cd_growth))}` : '';
+  const negStr = [sbStr, cdStr].filter(Boolean).join(' · ');
+  return `Dear ${name}, Greetings from Regional Office.\n\nAs per confirmed position for *${branch.name} (SOL ${branch.sol})*, the branch has negative accretion (${negStr}).\n\nKindly review your deposit commitments and ensure your positivity action plan is updated:\n👉 https://dailyreport-9265a.web.app/?date=${date}\n\n— Regional Office, IOB Dindigul`;
+}
+
+function getGroupReminderMsg(tabType: string) {
+  const cutoffTime = data?.pub?.deadline || '17:00';
+  if (tabType === 'pending') {
+    const lines = pendingSubBranches.map((b: any, idx: number) => {
+      const { name } = getBranchHeadContact(b.sol);
+      return `${idx + 1}. [SOL ${b.sol}] ${b.name}${name && name !== 'Branch Head' ? ` - ${name}` : ''}`;
+    });
+    return `*INDIAN OVERSEAS BANK - DINDIGUL REGION*\n*DAILY REPORTING · PENDING SUBMISSIONS*\n📅 *Reporting Date: ${date}*\n\nDear Branch Heads,\nThe following *${pendingSubBranches.length} of ${data?.branches?.length || 56} branches* have NOT yet submitted their Daily Performance Report for today:\n\n${lines.join('\n')}\n\n⚠️ *Action Required*: All pending branches are requested to submit their daily additions immediately before ${cutoffTime} IST:\n👉 https://dailyreport-9265a.web.app/?date=${date}\n\n— Regional Office, IOB Dindigul`;
+  }
+  if (tabType === 'login') {
+    const lines = pendingLoginBranchesList.map((b: any, idx: number) => {
+      const { name } = getBranchHeadContact(b.sol);
+      return `${idx + 1}. [SOL ${b.sol}] ${b.name}${name && name !== 'Branch Head' ? ` - ${name}` : ''}`;
+    });
+    return `*INDIAN OVERSEAS BANK - DINDIGUL REGION*\n*PENDING WORKSPACE LOGINS · ${date}*\n\nDear Branch Heads,\nThe following *${pendingLoginBranchesList.length} branches* have not yet logged into the daily reporting workspace today:\n\n${lines.join('\n')}\n\n🔐 Please log in using your registered mobile number:\n👉 https://dailyreport-9265a.web.app/?date=${date}\n\n— Regional Office, IOB Dindigul`;
+  }
+  if (tabType === 'nil') {
+    const lines = nilOpeningsBranchesList.map((b: any, idx: number) => {
+      const { name } = getBranchHeadContact(b.sol);
+      return `${idx + 1}. [SOL ${b.sol}] ${b.name}${name && name !== 'Branch Head' ? ` - ${name}` : ''}`;
+    });
+    return `*INDIAN OVERSEAS BANK - DINDIGUL REGION*\n*NIL ACCOUNT OPENINGS TODAY · ${date}*\n\nDear Branch Heads,\nThe following *${nilOpeningsBranchesList.length} branches* have reported *0 SB and 0 CD* accounts opened today:\n\n${lines.join('\n')}\n\n⚠️ Branch heads are requested to ensure account openings are driven actively every single day.\n\n— Regional Office, IOB Dindigul`;
+  }
+  const lines = negMtdBranchesList.map((b: any, idx: number) => {
+    const r = data?.pub?.rows?.find((x: any) => x.sol === b.sol);
+    const sbStr = r && r.sb_growth < 0 ? `SB -₹${fmt(Math.abs(r.sb_growth))}` : '';
+    const cdStr = r && r.cd_growth < 0 ? `CD -₹${fmt(Math.abs(r.cd_growth))}` : '';
+    const negStr = [sbStr, cdStr].filter(Boolean).join(', ');
+    return `${idx + 1}. [SOL ${b.sol}] ${b.name} (${negStr})`;
+  });
+  return `*INDIAN OVERSEAS BANK - DINDIGUL REGION*\n*BRANCHES WITH NEGATIVE MTD GROWTH · ${date}*\n\nDear Branch Heads,\nThe following *${negMtdBranchesList.length} branches* currently have negative growth under SB or CD:\n\n${lines.join('\n')}\n\nAction plans and daily deposit mobilization are requested from all concerned branch heads.\n👉 https://dailyreport-9265a.web.app/?date=${date}\n\n— Regional Office, IOB Dindigul`;
+}
 async function load(isSilent=false){const requestId=++loadId.current;if(!isSilent)setError('');try{const r=await fetch('/api/portal?date='+date+'&portal=daily&_t='+Date.now(),{cache:'no-store'}),j:any=await r.json();if(requestId!==loadId.current)return;if(!r.ok)throw Error(j.error);setData(j);if(j.user.role==='branch'){setSol(j.user.sol);setValues((prev:any)=>Object.keys(prev).length?prev:(j.subs.find((x:any)=>x.sol===j.user.sol)?.values||{}));}if(!routed.current){setTab(j.user.role==='branch'?'Branch report':j.user.role==='reviewer'?'Review desk':(j.user.role==='srm'||j.user.role==='gm')?'Overview':'Publish data');setReviewStatus((j.user.role==='srm'||j.user.role==='gm')?'gm_direction':'reviewed');routed.current=true;}}catch(e:any){if(!isSilent)setError(e.message);if(/sign.in|session|account changed/i.test(e.message))onExit();}}
 useEffect(()=>{const d=new URLSearchParams(window.location.search).get('date');if(d){try{cutoffs(d);setDate(d);}catch{}}},[]);
 useEffect(()=>{load();setValues({});setReply('');setRows([]);setMeta((m:any)=>({...m,cutoff:cutoffs(date).yesterday}));},[date]);
@@ -226,7 +322,7 @@ function directoryTemplate(){download('IOB_branch_directory_template.csv','sol,b
 async function switchPortal(target:'sma'|'funding'){setBusy(true);try{const r=await fetch('/api/portal',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({action:'handoff',date})});const j:any=await r.json();if(!r.ok||!j.token)throw Error(j.error||'Failed to create handover');const isMainDomain=window.location.hostname.includes('dailyreport-9265a');const targetBase=isMainDomain?(target==='sma'?'https://dailyreport-sma-9265a.web.app':'https://dailyreport-funding-9265a.web.app'):window.location.origin+'/'+target;window.location.href=`${targetBase}/?handoff=${encodeURIComponent(j.token)}&date=${date}`;}catch(e:any){setError(e.message);setBusy(false);}}
 if(!data)return <main className="loading"><img src="/logo.svg" alt="Indian Overseas Bank Logo" className="sitelogo sitelogo-lg"/><h1>Daily Performance</h1><p>{error||'Opening your regional workspace…'}</p>{error&&<button onClick={()=>load()}>Try again</button>}</main>;
 return <div className={"shell role-"+data.user.role}><aside><div className="brand"><img src="/logo.svg" alt="Indian Overseas Bank Logo" className="sitelogo"/><div>Indian Overseas Bank<small>DAILY PERFORMANCE REPORTING</small></div></div><div className="navlabel">PERFORMANCE WORKSPACE</div><nav>{nav.map(([name,Icon]:any)=><button key={name} className={tab===name?'selected':''} onClick={()=>{setTab(name);setNotice('');}}><Icon size={18}/>{name}{name==='Message queue'&&data.jobs.some((x:any)=>x.status!=='sent')&&<i/>}</button>)}</nav><div className="sidebottom"><span className="avatar">{(data.user.name||data.user.email||data.user.phone?.slice(2)||'U')[0].toUpperCase()}</span><div>{data.user.role==='admin'?'Regional administrator':(data.user.role==='srm'||data.user.role==='gm')?'General Manager (GM)':data.user.role==='branch'?'Branch head':'Reviewer'}<small>{data.user.phone?.slice(2)}</small></div></div></aside>
-<main><header><div className="crumb">Dindigul region <ChevronRight size={14}/> {tab}</div><div className="headeractions"><span title="Real-time live sync every 8 seconds" style={{display:'inline-flex',alignItems:'center',gap:5,fontSize:11,color:'#059669',fontWeight:700,background:'#ecfdf5',padding:'4px 8px',borderRadius:20,border:'1px solid #a7f3d0'}}><span style={{width:6,height:6,borderRadius:'50%',background:'#10b981',display:'inline-block'}}/> Live Sync</span><button type="button" className="secondary" onClick={()=>switchPortal('sma')} title="Open SMA Follow-up Portal" style={{display:'inline-flex',alignItems:'center',gap:6,padding:'6px 12px',fontSize:12,fontWeight:600,color:'#b91c1c',borderColor:'#fecaca',background:'#fef2f2'}}>SMA Follow-up <ExternalLink size={13}/></button><button type="button" className="secondary" onClick={()=>switchPortal('funding')} title="Open Low Balance Funding Portal" style={{display:'inline-flex',alignItems:'center',gap:6,padding:'6px 12px',fontSize:12,fontWeight:600,color:'#0284c7',borderColor:'#bae6fd',background:'#f0f9ff'}}>Low Balance Funding <ExternalLink size={13}/></button>{(isAdmin||isGm)&&active.length>0&&<button type="button" className="secondary" onClick={()=>{setSelectedCampId(active[0]?.id);setCampSeqIdx(0);setShowCampModal(true);}} title="Open WhatsApp Campaign Messaging Center" style={{display:'inline-flex',alignItems:'center',gap:6,padding:'6px 12px',fontSize:12,fontWeight:600,color:'#15803d',borderColor:'#86efac',background:'#f0fdf4'}}><MessageSquare size={13}/> Campaign WhatsApp ({active.length})</button>}<span className={"private "+(isGm?"srm-tag":"")}>{data.user.role==='branch'?'Branch head':data.user.role==='reviewer'?'Reviewer':(data.user.role==='srm'||data.user.role==='gm')?'General Manager (GM)':'Admin'}</span><button className="textbutton" onClick={async()=>{await fetch('/api/auth',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({action:'logout'})});onExit();}}>Sign out</button><button className="icon" onClick={()=>load()} aria-label="Refresh"><RefreshCw size={17}/></button></div></header><div className="content"><div className="title"><div><div className="eyebrow">DAILY REPORTING</div><h1>{data.user.role==='branch'?'Daily entry':tab}</h1><p>{tab==='Overview'?'A clear view of branch performance. One day at a time.':tab==='Review desk'?'Review submissions, follow commitments and reply to the group.':tab==='Publish data'?'Validate the confirmed position before opening today’s reporting.':'Dindigul regional performance workspace'}</p></div><label className="date">Reporting date<input type="date" value={date} onChange={e=>e.target.value&&setDate(e.target.value)}/></label></div>
+<main><header><div className="crumb">Dindigul region <ChevronRight size={14}/> {tab}</div><div className="headeractions"><span title="Real-time live sync every 8 seconds" style={{display:'inline-flex',alignItems:'center',gap:5,fontSize:11,color:'#059669',fontWeight:700,background:'#ecfdf5',padding:'4px 8px',borderRadius:20,border:'1px solid #a7f3d0'}}><span style={{width:6,height:6,borderRadius:'50%',background:'#10b981',display:'inline-block'}}/> Live Sync</span><button type="button" className="secondary" onClick={()=>switchPortal('sma')} title="Open SMA Follow-up Portal" style={{display:'inline-flex',alignItems:'center',gap:6,padding:'6px 12px',fontSize:12,fontWeight:600,color:'#b91c1c',borderColor:'#fecaca',background:'#fef2f2'}}>SMA Follow-up <ExternalLink size={13}/></button><button type="button" className="secondary" onClick={()=>switchPortal('funding')} title="Open Low Balance Funding Portal" style={{display:'inline-flex',alignItems:'center',gap:6,padding:'6px 12px',fontSize:12,fontWeight:600,color:'#0284c7',borderColor:'#bae6fd',background:'#f0f9ff'}}>Low Balance Funding <ExternalLink size={13}/></button>{(isAdmin||isGm||data.user.role==='reviewer')&&<button type="button" className="secondary" onClick={()=>{setReminderTab('pending');setReminderSeqIdx(0);setShowReminderModal(true);}} title="Open WhatsApp Reminders Center" style={{display:'inline-flex',alignItems:'center',gap:6,padding:'6px 12px',fontSize:12,fontWeight:700,color:'#15803d',borderColor:'#86efac',background:'#f0fdf4'}}><MessageSquare size={13}/> WhatsApp Reminders ({pendingSubBranches.length} pending)</button>}{(isAdmin||isGm)&&active.length>0&&<button type="button" className="secondary" onClick={()=>{setSelectedCampId(active[0]?.id);setCampSeqIdx(0);setShowCampModal(true);}} title="Open WhatsApp Campaign Messaging Center" style={{display:'inline-flex',alignItems:'center',gap:6,padding:'6px 12px',fontSize:12,fontWeight:600,color:'#15803d',borderColor:'#86efac',background:'#f0fdf4'}}><MessageSquare size={13}/> Campaign WhatsApp ({active.length})</button>}<span className={"private "+(isGm?"srm-tag":"")}>{data.user.role==='branch'?'Branch head':data.user.role==='reviewer'?'Reviewer':(data.user.role==='srm'||data.user.role==='gm')?'General Manager (GM)':'Admin'}</span><button className="textbutton" onClick={async()=>{await fetch('/api/auth',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({action:'logout'})});onExit();}}>Sign out</button><button className="icon" onClick={()=>load()} aria-label="Refresh"><RefreshCw size={17}/></button></div></header><div className="content"><div className="title"><div><div className="eyebrow">DAILY REPORTING</div><h1>{data.user.role==='branch'?'Daily entry':tab}</h1><p>{tab==='Overview'?'A clear view of branch performance. One day at a time.':tab==='Review desk'?'Review submissions, follow commitments and reply to the group.':tab==='Publish data'?'Validate the confirmed position before opening today’s reporting.':'Dindigul regional performance workspace'}</p></div><label className="date">Reporting date<input type="date" value={date} onChange={e=>e.target.value&&setDate(e.target.value)}/></label></div>
 {data.user.role!=='branch'&&<div className="tickertape-wrap no-print"><div className="tickertape-label"><span className="live-dot"/> REGIONAL LIVE PULSE</div><div className="tickertape-track"><div className="tickertape-content">{tickerItems.concat(tickerItems).map((item,idx)=><button key={`${item.id}-${idx}`} type="button" className="tickertape-item" onClick={()=>openBranch(item.sol,tab==='Review desk'?'Review entry':'Branch report')} title={`Click to open ${item.branchName} (${item.sol})`}><span className="tickertape-icon">{item.icon}</span><span className="tickertape-text">{item.text}</span><span className="tickertape-link">Open branch →</span></button>)}</div></div></div>}
 {error&&<div className="alert error" role="alert">{error}</div>}{notice&&<div className="alert success" role="status">{notice}</div>}
 {!data.pub&&tab!=='Publish data'&&<div className="alert neutral"><Clock size={19}/><div><b>Reporting has not opened for this date.</b><br/>{isAdmin?'Publish the daily position to enable branch submissions.':'Your administrator will open reporting after uploading the daily position.'}</div>{isAdmin&&<button className="secondary" onClick={()=>setTab('Publish data')}>Upload daily data <ChevronRight size={16}/></button>}</div>}
@@ -300,6 +396,16 @@ return <div className={"shell role-"+data.user.role}><aside><div className="bran
         <small style={{lineHeight:1.6}}>
           <b style={{color:data.branches.length-data.subs.length>0?'#dc2626':'#059669'}}>{data.branches.length-data.subs.length} branches pending</b> &bull; {nilOpeningsBranches} NIL openings
         </small>
+        {(isAdmin||isGm||data.user.role==='reviewer')&&pendingSubBranches.length>0&&(
+          <button
+            type="button"
+            className="secondary"
+            onClick={(e)=>{e.stopPropagation();setReminderTab('pending');setReminderSeqIdx(0);setShowReminderModal(true);}}
+            style={{marginTop:8,width:'100%',display:'inline-flex',alignItems:'center',justifyContent:'center',gap:6,padding:'5px 10px',fontSize:11,fontWeight:700,color:'#15803d',borderColor:'#86efac',background:'#ffffff',borderRadius:6}}
+          >
+            <MessageSquare size={12}/> Send WhatsApp Reminders ({pendingSubBranches.length})
+          </button>
+        )}
       </div>
 
       <div
@@ -440,7 +546,7 @@ return <div className={"shell role-"+data.user.role}><aside><div className="bran
     </div>
   </>;
 })()}
-<div className="panel"><div className="paneltop"><div><h2>{tab==='Review desk'?'Review queue':'Branch performance'}</h2><p>{data.pub?'Published v'+data.pub.version+' · Amounts in ₹ · '+data.pub.baseline:'Confirmed positions will appear after publication.'}</p></div><button className="secondary" onClick={()=>download('IOB_summary_'+date+'.csv','SOL,Branch,Status,SB opened today,CD opened today,SB growth today ₹,CD growth today ₹,TD growth today ₹,Retail sanctions today accts,Retail sanctions today ₹,Agri sanctions today accts,Agri sanctions today ₹,MSME sanctions today accts,MSME sanctions today ₹,Retail LPC forwarded accts,Retail LPC forwarded ₹,Agri LPC forwarded accts,Agri LPC forwarded ₹,MSME LPC forwarded accts,MSME LPC forwarded ₹,SMA0 elim accts,SMA0 elim ₹,SMA1 elim accts,SMA1 elim ₹,SMA2 elim accts,SMA2 elim ₹,Total SMA elim ₹\n'+data.branches.map((b:any)=>{const s=data.subs.find((x:any)=>x.sol===b.sol);const totalSmaElim=Number(s?.values?.sma0_amount||0)+Number(s?.values?.sma1_amount||0)+Number(s?.values?.sma2_amount||0);return [b.sol,b.name,status(b),s?.values.sb_opened??'',s?.values.cd_opened??'',s?.values.sb_growth_today??'',s?.values.cd_growth_today??'',s?.values.td_growth_today??'',s?.values.sanction_retail_count??'',s?.values.sanction_retail_amount??'',s?.values.sanction_agri_count??'',s?.values.sanction_agri_amount??'',s?.values.sanction_msme_count??'',s?.values.sanction_msme_amount??'',s?.values.lpc_retail_count??'',s?.values.lpc_retail_amount??'',s?.values.lpc_agri_count??'',s?.values.lpc_agri_amount??'',s?.values.lpc_msme_count??'',s?.values.lpc_msme_amount??'',s?.values.sma0_count??'',s?.values.sma0_amount??'',s?.values.sma1_count??'',s?.values.sma1_amount??'',s?.values.sma2_count??'',s?.values.sma2_amount??'',totalSmaElim||''].join(',')}).join('\n'))}><Download size={16}/>Export summary</button></div><div className="toolbar"><input placeholder="Search branch or SOL…" value={search} onChange={e=>setSearch(e.target.value)}/><select value={filter} onChange={e=>setFilter(e.target.value)}>{['All branches','Pending','Submitted','Reviewed','Clarification','SB Negative (MTD)','CD Negative (MTD)','SB Degrowth Today','CD Degrowth Today','TD Degrowth Today','LPC Forwarded Cases','Sanctions Today','NIL openings'].map(x=><option key={x}>{x}</option>)}</select></div><div className="tablewrap branchlist"><table><thead><tr><th>BRANCH</th><th>SB POSITION & OPENINGS</th><th>CD POSITION & OPENINGS</th><th>TD TODAY</th><th>LPC FORWARDED TODAY</th><th>BRANCH SANCTIONS</th><th>SMA ELIM</th><th>REPORT STATUS</th><th/></tr></thead><tbody>{data.branches.filter((b:any)=>{const s=data.subs.find((x:any)=>x.sol===b.sol),r=data.pub?.rows.find((x:any)=>x.sol===b.sol);const hasLpc=s&&(Number(s.values.lpc_retail_count||0)>0||Number(s.values.lpc_agri_count||0)>0||Number(s.values.lpc_msme_count||0)>0);const hasSanction=s&&(Number(s.values.sanction_retail_count||0)>0||Number(s.values.sanction_agri_count||0)>0||Number(s.values.sanction_msme_count||0)>0);return (b.name+' '+b.sol).toLowerCase().includes(search.toLowerCase())&&(filter==='All branches'||filter===status(b)||(filter==='SB Negative (MTD)'&&r?.sb_growth<0)||(filter==='CD Negative (MTD)'&&r?.cd_growth<0)||(filter==='SB Degrowth Today'&&s&&Number(s.values.sb_growth_today||0)<0)||(filter==='CD Degrowth Today'&&s&&Number(s.values.cd_growth_today||0)<0)||(filter==='TD Degrowth Today'&&s&&Number(s.values.td_growth_today||0)<0)||(filter==='LPC Forwarded Cases'&&hasLpc)||(filter==='Sanctions Today'&&hasSanction)||(filter==='NIL openings'&&s&&s.values.sb_opened===0&&s.values.cd_opened===0));}).map((b:any)=>{const r=data.pub?.rows.find((x:any)=>x.sol===b.sol),s=data.subs.find((x:any)=>x.sol===b.sol);const totalSma=Number(s?.values?.sma0_amount||0)+Number(s?.values?.sma1_amount||0)+Number(s?.values?.sma2_amount||0);const totalLpc=Number(s?.values?.lpc_retail_amount||0)+Number(s?.values?.lpc_agri_amount||0)+Number(s?.values?.lpc_msme_amount||0);const totalLpcCnt=Number(s?.values?.lpc_retail_count||0)+Number(s?.values?.lpc_agri_count||0)+Number(s?.values?.lpc_msme_count||0);const totalSanction=Number(s?.values?.sanction_retail_amount||0)+Number(s?.values?.sanction_agri_amount||0)+Number(s?.values?.sanction_msme_amount||0);return <tr key={b.sol}><td><b>{b.name}</b><small>SOL {b.sol}</small></td><td data-label="SB Position & Openings">{r?<div><span className={r.sb_growth<0?'negative':r.sb_growth>0?'positive':'muted'}>MTD: ₹{fmt(r.sb_growth)}</span>{s?.values?.sb_growth_today!=null&&<small style={{color:Number(s.values.sb_growth_today)<0?'#dc2626':'#059669',fontWeight:600}}>Today: ₹{fmt(s.values.sb_growth_today)} {Number(s.values.sb_growth_today)<0?'▼':'▲'}</small>}{s&&<div style={{marginTop:3}}><span style={{display:'inline-block',background:'#e0f2fe',color:'#0369a1',padding:'1px 6px',borderRadius:4,fontSize:11,fontWeight:700}}>Opened: +{s.values.sb_opened} ({s.values.sb_funded} funded)</span></div>}</div>:'—'}</td><td data-label="CD Position & Openings">{r?<div><span className={r.cd_growth<0?'negative':r.cd_growth>0?'positive':'muted'}>MTD: ₹{fmt(r.cd_growth)}</span>{s?.values?.cd_growth_today!=null&&<small style={{color:Number(s.values.cd_growth_today)<0?'#dc2626':'#059669',fontWeight:600}}>Today: ₹{fmt(s.values.cd_growth_today)} {Number(s.values.cd_growth_today)<0?'▼':'▲'}</small>}{s&&<div style={{marginTop:3}}><span style={{display:'inline-block',background:'#f1f5f9',color:'#334155',padding:'1px 6px',borderRadius:4,fontSize:11,fontWeight:700}}>Opened: +{s.values.cd_opened} ({s.values.cd_funded} funded)</span></div>}</div>:'—'}</td><td data-label="TD Today">{s?.values?.td_growth_today!=null?<div><b style={{color:Number(s.values.td_growth_today)<0?'#dc2626':Number(s.values.td_growth_today)>0?'#059669':'#64748b'}}>₹{fmt(s.values.td_growth_today)}</b><small style={{color:Number(s.values.td_growth_today)<0?'#dc2626':'#059669'}}>{Number(s.values.td_growth_today)<0?'▼ Degrowth':Number(s.values.td_growth_today)>0?'▲ Growth':'NIL'}</small></div>:'—'}</td><td data-label="LPC Forwarded Today">{s&&totalLpcCnt>0?<div><b style={{color:'#0284c7'}}>₹{fmt(totalLpc)}</b><small>{totalLpcCnt} cases (R:{s.values.lpc_retail_count||0} · A:{s.values.lpc_agri_count||0} · M:{s.values.lpc_msme_count||0})</small></div>:'—'}</td><td data-label="Branch Sanctions">{s&&totalSanction>0?<div><span>₹{fmt(totalSanction)}</span><small>R: ₹{fmt(s.values.sanction_retail_amount)} · A: ₹{fmt(s.values.sanction_agri_amount)} · M: ₹{fmt(s.values.sanction_msme_amount)}</small></div>:'—'}</td><td data-label="SMA Elim">{s&&totalSma>0?<div><span style={{color:'#059669',fontWeight:600}}>₹{fmt(totalSma)}</span><small>{Number(s.values.sma0_count||0)+Number(s.values.sma1_count||0)+Number(s.values.sma2_count||0)} accts</small></div>:'—'}</td><td data-label="Report"><span className={'badge '+status(b).toLowerCase()}>{status(b)}</span></td><td><button className="textbutton" onClick={()=>openBranch(b.sol,tab==='Review desk'?'Review entry':'Branch report')}>{tab==='Review desk'?'Review':'Open'} <ChevronRight size={15}/></button></td></tr>})}</tbody></table></div></div><div className="footnote">Confirmed figures and branch-reported additions are kept separate. A missing report is never counted as NIL.</div></>}
+<div className="panel"><div className="paneltop"><div><h2>{tab==='Review desk'?'Review queue':'Branch performance'}</h2><p>{data.pub?'Published v'+data.pub.version+' · Amounts in ₹ · '+data.pub.baseline:'Confirmed positions will appear after publication.'}</p></div><div style={{display:'flex',gap:8,alignItems:'center'}}>{(isAdmin||isGm||data.user.role==='reviewer')&&pendingSubBranches.length>0&&<button type="button" className="secondary" onClick={()=>{setReminderTab('pending');setReminderSeqIdx(0);setShowReminderModal(true);}} style={{display:'inline-flex',alignItems:'center',gap:6,color:'#15803d',borderColor:'#86efac',background:'#f0fdf4',fontWeight:700}}><MessageSquare size={14}/> Remind Pending ({pendingSubBranches.length})</button>}<button className="secondary" onClick={()=>download('IOB_summary_'+date+'.csv','SOL,Branch,Status,SB opened today,CD opened today,SB growth today ₹,CD growth today ₹,TD growth today ₹,Retail sanctions today accts,Retail sanctions today ₹,Agri sanctions today accts,Agri sanctions today ₹,MSME sanctions today accts,MSME sanctions today ₹,Retail LPC forwarded accts,Retail LPC forwarded ₹,Agri LPC forwarded accts,Agri LPC forwarded ₹,MSME LPC forwarded accts,MSME LPC forwarded ₹,SMA0 elim accts,SMA0 elim ₹,SMA1 elim accts,SMA1 elim ₹,SMA2 elim accts,SMA2 elim ₹,Total SMA elim ₹\n'+data.branches.map((b:any)=>{const s=data.subs.find((x:any)=>x.sol===b.sol);const totalSmaElim=Number(s?.values?.sma0_amount||0)+Number(s?.values?.sma1_amount||0)+Number(s?.values?.sma2_amount||0);return [b.sol,b.name,status(b),s?.values.sb_opened??'',s?.values.cd_opened??'',s?.values.sb_growth_today??'',s?.values.cd_growth_today??'',s?.values.td_growth_today??'',s?.values.sanction_retail_count??'',s?.values.sanction_retail_amount??'',s?.values.sanction_agri_count??'',s?.values.sanction_agri_amount??'',s?.values.sanction_msme_count??'',s?.values.sanction_msme_amount??'',s?.values.lpc_retail_count??'',s?.values.lpc_retail_amount??'',s?.values.lpc_agri_count??'',s?.values.lpc_agri_amount??'',s?.values.lpc_msme_count??'',s?.values.lpc_msme_amount??'',s?.values.sma0_count??'',s?.values.sma0_amount??'',s?.values.sma1_count??'',s?.values.sma1_amount??'',s?.values.sma2_count??'',s?.values.sma2_amount??'',totalSmaElim||''].join(',')}).join('\n'))}><Download size={16}/>Export summary</button></div></div><div className="toolbar"><input placeholder="Search branch or SOL…" value={search} onChange={e=>setSearch(e.target.value)}/><select value={filter} onChange={e=>setFilter(e.target.value)}>{['All branches','Pending','Submitted','Reviewed','Clarification','SB Negative (MTD)','CD Negative (MTD)','SB Degrowth Today','CD Degrowth Today','TD Degrowth Today','LPC Forwarded Cases','Sanctions Today','NIL openings'].map(x=><option key={x}>{x}</option>)}</select></div><div className="tablewrap branchlist"><table><thead><tr><th>BRANCH</th><th>SB POSITION & OPENINGS</th><th>CD POSITION & OPENINGS</th><th>TD TODAY</th><th>LPC FORWARDED TODAY</th><th>BRANCH SANCTIONS</th><th>SMA ELIM</th><th>REPORT STATUS</th><th/></tr></thead><tbody>{data.branches.filter((b:any)=>{const s=data.subs.find((x:any)=>x.sol===b.sol),r=data.pub?.rows.find((x:any)=>x.sol===b.sol);const hasLpc=s&&(Number(s.values.lpc_retail_count||0)>0||Number(s.values.lpc_agri_count||0)>0||Number(s.values.lpc_msme_count||0)>0);const hasSanction=s&&(Number(s.values.sanction_retail_count||0)>0||Number(s.values.sanction_agri_count||0)>0||Number(s.values.sanction_msme_count||0)>0);return (b.name+' '+b.sol).toLowerCase().includes(search.toLowerCase())&&(filter==='All branches'||filter===status(b)||(filter==='SB Negative (MTD)'&&r?.sb_growth<0)||(filter==='CD Negative (MTD)'&&r?.cd_growth<0)||(filter==='SB Degrowth Today'&&s&&Number(s.values.sb_growth_today||0)<0)||(filter==='CD Degrowth Today'&&s&&Number(s.values.cd_growth_today||0)<0)||(filter==='TD Degrowth Today'&&s&&Number(s.values.td_growth_today||0)<0)||(filter==='LPC Forwarded Cases'&&hasLpc)||(filter==='Sanctions Today'&&hasSanction)||(filter==='NIL openings'&&s&&s.values.sb_opened===0&&s.values.cd_opened===0));}).map((b:any)=>{const r=data.pub?.rows.find((x:any)=>x.sol===b.sol),s=data.subs.find((x:any)=>x.sol===b.sol);const totalSma=Number(s?.values?.sma0_amount||0)+Number(s?.values?.sma1_amount||0)+Number(s?.values?.sma2_amount||0);const totalLpc=Number(s?.values?.lpc_retail_amount||0)+Number(s?.values?.lpc_agri_amount||0)+Number(s?.values?.lpc_msme_amount||0);const totalLpcCnt=Number(s?.values?.lpc_retail_count||0)+Number(s?.values?.lpc_agri_count||0)+Number(s?.values?.lpc_msme_count||0);const totalSanction=Number(s?.values?.sanction_retail_amount||0)+Number(s?.values?.sanction_agri_amount||0)+Number(s?.values?.sanction_msme_amount||0);return <tr key={b.sol}><td><b>{b.name}</b><small>SOL {b.sol}</small></td><td data-label="SB Position & Openings">{r?<div><span className={r.sb_growth<0?'negative':r.sb_growth>0?'positive':'muted'}>MTD: ₹{fmt(r.sb_growth)}</span>{s?.values?.sb_growth_today!=null&&<small style={{color:Number(s.values.sb_growth_today)<0?'#dc2626':'#059669',fontWeight:600}}>Today: ₹{fmt(s.values.sb_growth_today)} {Number(s.values.sb_growth_today)<0?'▼':'▲'}</small>}{s&&<div style={{marginTop:3}}><span style={{display:'inline-block',background:'#e0f2fe',color:'#0369a1',padding:'1px 6px',borderRadius:4,fontSize:11,fontWeight:700}}>Opened: +{s.values.sb_opened} ({s.values.sb_funded} funded)</span></div>}</div>:'—'}</td><td data-label="CD Position & Openings">{r?<div><span className={r.cd_growth<0?'negative':r.cd_growth>0?'positive':'muted'}>MTD: ₹{fmt(r.cd_growth)}</span>{s?.values?.cd_growth_today!=null&&<small style={{color:Number(s.values.cd_growth_today)<0?'#dc2626':'#059669',fontWeight:600}}>Today: ₹{fmt(s.values.cd_growth_today)} {Number(s.values.cd_growth_today)<0?'▼':'▲'}</small>}{s&&<div style={{marginTop:3}}><span style={{display:'inline-block',background:'#f1f5f9',color:'#334155',padding:'1px 6px',borderRadius:4,fontSize:11,fontWeight:700}}>Opened: +{s.values.cd_opened} ({s.values.cd_funded} funded)</span></div>}</div>:'—'}</td><td data-label="TD Today">{s?.values?.td_growth_today!=null?<div><b style={{color:Number(s.values.td_growth_today)<0?'#dc2626':Number(s.values.td_growth_today)>0?'#059669':'#64748b'}}>₹{fmt(s.values.td_growth_today)}</b><small style={{color:Number(s.values.td_growth_today)<0?'#dc2626':'#059669'}}>{Number(s.values.td_growth_today)<0?'▼ Degrowth':Number(s.values.td_growth_today)>0?'▲ Growth':'NIL'}</small></div>:'—'}</td><td data-label="LPC Forwarded Today">{s&&totalLpcCnt>0?<div><b style={{color:'#0284c7'}}>₹{fmt(totalLpc)}</b><small>{totalLpcCnt} cases (R:{s.values.lpc_retail_count||0} · A:{s.values.lpc_agri_count||0} · M:{s.values.lpc_msme_count||0})</small></div>:'—'}</td><td data-label="Branch Sanctions">{s&&totalSanction>0?<div><span>₹{fmt(totalSanction)}</span><small>R: ₹{fmt(s.values.sanction_retail_amount)} · A: ₹{fmt(s.values.sanction_agri_amount)} · M: ₹{fmt(s.values.sanction_msme_amount)}</small></div>:'—'}</td><td data-label="SMA Elim">{s&&totalSma>0?<div><span style={{color:'#059669',fontWeight:600}}>₹{fmt(totalSma)}</span><small>{Number(s.values.sma0_count||0)+Number(s.values.sma1_count||0)+Number(s.values.sma2_count||0)} accts</small></div>:'—'}</td><td data-label="Report"><span className={'badge '+status(b).toLowerCase()}>{status(b)}</span>{status(b)==='Pending'&&(isAdmin||isGm||data.user.role==='reviewer')&&<a href={getBranchHeadContact(b.sol).hasPhone?`https://wa.me/${getBranchHeadContact(b.sol).phone}?text=${encodeURIComponent(getIndividualReminderMsg(b,'pending'))}`:`https://wa.me/?text=${encodeURIComponent(getIndividualReminderMsg(b,'pending'))}`} target="_blank" rel="noopener noreferrer" title={getBranchHeadContact(b.sol).hasPhone?`WhatsApp reminder to ${getBranchHeadContact(b.sol).name} (${getBranchHeadContact(b.sol).displayPhone})`:'Share reminder via WhatsApp'} style={{display:'inline-flex',alignItems:'center',gap:4,padding:'2px 7px',borderRadius:4,fontSize:11,fontWeight:700,color:'#15803d',background:'#f0fdf4',border:'1px solid #86efac',textDecoration:'none',marginLeft:6}} onClick={()=>setSentReminderSols((prev:string[])=>prev.includes(b.sol)?prev:[...prev,b.sol])}><MessageSquare size={11}/> Remind</a>}</td><td><button className="textbutton" onClick={()=>openBranch(b.sol,tab==='Review desk'?'Review entry':'Branch report')}>{tab==='Review desk'?'Review':'Open'} <ChevronRight size={15}/></button></td></tr>})}</tbody></table></div></div><div className="footnote">Confirmed figures and branch-reported additions are kept separate. A missing report is never counted as NIL.</div></>}
 {(tab==='Branch report'||tab==='Review entry')&&<>{tab==='Review entry'&&<button className="backbutton secondary" onClick={()=>setTab('Review desk')}>← Back to review queue</button>}<div className="panel branchpicker">{data.user.role==='branch'?<div><h2>{branch?.name}</h2><small>SOL {sol} · Your branch</small></div>:<label>Branch<select value={sol} onChange={e=>openBranch(e.target.value,tab)}><option value="">Select a branch</option>{data.branches.map((b:any)=><option key={b.sol} value={b.sol}>{b.sol} · {b.name}</option>)}</select></label>}{sub&&<span className="badge submitted">Revision {sub.revision} · {new Date(sub.at).toLocaleString('en-IN',{timeZone:'Asia/Kolkata'})}</span>}</div>
 {snap&&<><div className="panel"><h2>{branch?.name} <span className="muted">· SOL {sol}</span></h2><p>{data.pub?`Confirmed through ${data.pub.cutoff} · Funded: ${data.pub.fundedDefinition}`:'Awaiting admin baseline publication · You can record and submit today’s performance below.'}</p><div className="tablewrap"><table><thead><tr><th>ACCOUNT POSITION</th><th>SB OPENED / FUNDED</th><th>CD OPENED / FUNDED</th></tr></thead><tbody>{['fy','mtd'].map(p=><tr key={p}><td>{p==='fy'?'FY through prior month-end':'Current month through yesterday'}</td>{['sb','cd'].map(t=><td key={t}>{fmt(snap[t+'_'+p+'_opened'])} / {fmt(snap[t+'_'+p+'_funded'])}</td>)}</tr>)}</tbody></table></div><div className="tablewrap" style={{marginTop:16}}><table><thead><tr><th>SANCTIONS POSITION</th><th>SANCTIONS UPTO LAST MONTH (ACCTS / ₹)</th><th>SANCTIONS IN CURRENT MONTH TILL YESTERDAY (ACCTS / ₹)</th></tr></thead><tbody>{sanctionSectors.map((s:any)=><tr key={s}><td><b>{sectorLabels[s]}</b></td><td>{fmt(snap['sanction_'+s+'_prior_count'])} accts · ₹{fmt(snap['sanction_'+s+'_prior_amount'])}</td><td>{fmt(snap['sanction_'+s+'_mtd_count'])} accts · ₹{fmt(snap['sanction_'+s+'_mtd_amount'])}</td></tr>)}</tbody></table></div><div className="growthline">{['sb','cd'].map(p=><div key={p} className={snap[p+'_growth']<0?'negative':'positive'}>{p.toUpperCase()} growth: ₹{fmt(snap[p+'_growth'])} <b>{snap[p+'_growth']<0?'Negative':snap[p+'_growth']>0?'Positive':'Zero growth'}</b></div>)}</div></div>
 {tab==='Branch report'&&data.user.role!=='reviewer'&&<><div className="panel"><div className="paneltop"><div><h2>01 · Today’s account openings</h2><p>Enter today’s additions only. Funded accounts must belong to today’s openings.</p></div><button className="secondary" onClick={()=>setValues((v:any)=>({...v,...Object.fromEntries(['sb_opened','sb_funded','cd_opened','cd_funded','sb_growth_today','cd_growth_today','td_growth_today','sma0_count','sma0_amount','sma1_count','sma1_amount','sma2_count','sma2_amount',...sanctionSectors.flatMap((s:any)=>['sanction_'+s+'_count','sanction_'+s+'_amount','lpc_'+s+'_count','lpc_'+s+'_amount']),...active.map((c:any)=>'camp_'+c.id)].map(k=>[k,0]))}))}>Set today’s additions to NIL</button></div><div className="grid4">{field('SB opened today','sb_opened')}{field('Of these, funded','sb_funded')}{field('CD opened today','cd_opened')}{field('Of these, funded','cd_funded')}</div><div className="miniinfo">Provisional MTD openings: SB {fmt(snap.sb_mtd_opened+Number(values.sb_opened||0))} · CD {fmt(snap.cd_mtd_opened+Number(values.cd_opened||0))}. Confirmed growth remains unchanged.</div>{(()=>{const bFund=(data?.fundingAccounts||[]).filter((a:any)=>a.sol===sol);const bDone=bFund.filter((a:any)=>a.funded);const bAmt=bDone.reduce((acc:number,a:any)=>acc+Number(a.funded_amount||0),0);return <div style={{marginTop:14,padding:'12px 16px',background:'#f0f9ff',border:'1px solid #bae6fd',borderRadius:8,display:'flex',justifyContent:'space-between',alignItems:'center',flexWrap:'wrap',gap:10}}><div><div style={{display:'flex',alignItems:'center',gap:6,color:'#0369a1',fontWeight:700,fontSize:13}}><CheckCircle2 size={16} color="#0284c7"/><span>Low Balance Accounts Funding (Live Auto-Sync)</span><span style={{fontSize:10,background:'#e0f2fe',color:'#0369a1',padding:'2px 8px',borderRadius:10,border:'1px solid #bae6fd',fontWeight:700}}>AUTO-FETCHED · NO MANUAL ENTRY</span></div><div style={{fontSize:12,color:'#334155',marginTop:4}}><b>{bDone.length}</b> of <b>{bFund.length}</b> low balance accounts funded &bull; Mobilized: <b style={{color:'#059669'}}>₹{fmt(bAmt)}</b></div></div><button type="button" className="secondary" onClick={()=>switchPortal('funding')} style={{fontSize:12,padding:'5px 12px',display:'inline-flex',alignItems:'center',gap:5,color:'#0284c7',borderColor:'#bae6fd'}}>Open Funding Portal <ExternalLink size={13}/></button></div>;})()}</div>
@@ -512,6 +618,16 @@ return <div className={"shell role-"+data.user.role}><aside><div className="bran
         }}>
           Copy pending branches
         </button>}
+        {(isAdmin||isGm||data.user.role==='reviewer')&&pendingLoginBranchesList.length>0&&(
+          <button
+            type="button"
+            className="secondary"
+            onClick={()=>{setReminderTab('login');setReminderSeqIdx(0);setShowReminderModal(true);}}
+            style={{display:'inline-flex',alignItems:'center',gap:6,color:'#15803d',borderColor:'#86efac',background:'#f0fdf4',fontWeight:700}}
+          >
+            <MessageSquare size={14}/> WhatsApp Login Reminders ({pendingLoginBranchesList.length})
+          </button>
+        )}
       </div>
     </div>
 
@@ -1182,6 +1298,498 @@ return <div className={"shell role-"+data.user.role}><aside><div className="bran
           className="button"
           onClick={() => { setShowCampModal(false); setCampSeqIdx(null); }}
           style={{ padding: '8px 18px', fontSize: 13 }}
+        >
+          Done
+        </button>
+      </div>
+    </div>
+  </div>
+)}
+
+{showReminderModal && (
+  <div
+    style={{
+      position: 'fixed',
+      top: 0,
+      left: 0,
+      right: 0,
+      bottom: 0,
+      background: 'rgba(15, 23, 42, 0.75)',
+      zIndex: 9999,
+      display: 'flex',
+      alignItems: 'center',
+      justifyContent: 'center',
+      padding: '20px',
+      backdropFilter: 'blur(3px)',
+    }}
+  >
+    <div
+      style={{
+        background: '#fff',
+        borderRadius: 12,
+        maxWidth: 1040,
+        width: '100%',
+        maxHeight: '92vh',
+        display: 'flex',
+        flexDirection: 'column',
+        boxShadow: '0 25px 50px -12px rgba(0, 0, 0, 0.35)',
+        overflow: 'hidden',
+      }}
+    >
+      {/* Modal Header */}
+      <div style={{ padding: '16px 24px', borderBottom: '1px solid #e2e8f0', display: 'flex', justifyContent: 'space-between', alignItems: 'center', background: '#064e3b', color: '#fff' }}>
+        <div>
+          <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+            <span style={{ background: '#25D366', color: '#fff', borderRadius: '50%', width: 28, height: 28, display: 'inline-flex', alignItems: 'center', justifyContent: 'center' }}>
+              <MessageSquare size={16} />
+            </span>
+            <h2 style={{ margin: 0, fontSize: 18, color: '#fff' }}>WhatsApp Reminders & Broadcast Center</h2>
+            <span style={{ fontSize: 11, background: 'rgba(255,255,255,0.2)', padding: '2px 8px', borderRadius: 12, fontWeight: 700 }}>
+              📅 {date}
+            </span>
+          </div>
+          <p style={{ margin: '4px 0 0', fontSize: 12, color: '#a7f3d0' }}>
+            Send 1-click reminders to branch heads or broadcast consolidated lists to the Regional BM WhatsApp group.
+          </p>
+        </div>
+        <button
+          type="button"
+          onClick={() => { setShowReminderModal(false); setReminderSeqIdx(null); }}
+          style={{ background: 'transparent', border: 'none', color: '#fff', cursor: 'pointer', padding: 6, display: 'inline-flex', alignItems: 'center' }}
+          title="Close"
+        >
+          <X size={20} />
+        </button>
+      </div>
+
+      {/* Tabs */}
+      <div style={{ display: 'flex', borderBottom: '1px solid #e2e8f0', background: '#f8fafc', padding: '0 16px', gap: 6, overflowX: 'auto' }}>
+        {[
+          { id: 'pending', label: 'Pending Daily Submissions', count: pendingSubBranches.length, color: '#dc2626' },
+          { id: 'login', label: 'Pending Logins', count: pendingLoginBranchesList.length, color: '#ea580c' },
+          { id: 'nil', label: 'NIL Account Openings', count: nilOpeningsBranchesList.length, color: '#d97706' },
+          { id: 'negative', label: 'Negative Growth Branches', count: negMtdBranchesList.length, color: '#7c3aed' },
+        ].map((t: any) => {
+          const isSel = reminderTab === t.id;
+          return (
+            <button
+              key={t.id}
+              type="button"
+              onClick={() => { setReminderTab(t.id); setReminderSeqIdx(0); }}
+              style={{
+                padding: '12px 16px',
+                fontSize: 13,
+                fontWeight: isSel ? 700 : 500,
+                color: isSel ? '#064e3b' : '#64748b',
+                border: 'none',
+                background: isSel ? '#fff' : 'transparent',
+                borderBottom: isSel ? '3px solid #059669' : '3px solid transparent',
+                cursor: 'pointer',
+                display: 'inline-flex',
+                alignItems: 'center',
+                gap: 8,
+                whiteSpace: 'nowrap',
+              }}
+            >
+              <span>{t.label}</span>
+              <span
+                style={{
+                  fontSize: 11,
+                  fontWeight: 800,
+                  padding: '1px 7px',
+                  borderRadius: 10,
+                  background: isSel ? t.color : '#e2e8f0',
+                  color: isSel ? '#fff' : '#475569',
+                }}
+              >
+                {t.count}
+              </span>
+            </button>
+          );
+        })}
+      </div>
+
+      {/* Modal Scrollable Body */}
+      <div style={{ padding: '20px 24px', overflowY: 'auto', flex: 1, display: 'flex', flexDirection: 'column', gap: 20 }}>
+        {/* SECTION 1: REGIONAL BM GROUP BROADCAST */}
+        <div style={{ background: '#f0fdf4', border: '1px solid #bbf7d0', borderRadius: 10, padding: 16 }}>
+          <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 10, flexWrap: 'wrap', gap: 10 }}>
+            <div>
+              <div style={{ fontSize: 13, fontWeight: 700, color: '#166534', display: 'flex', alignItems: 'center', gap: 6 }}>
+                <Users size={16} /> Regional BM Group Broadcast Message
+              </div>
+              <div style={{ fontSize: 12, color: '#15803d', marginTop: 2 }}>
+                Consolidated message listing all {activeReminderList.length} branches needing action, ready to paste in WhatsApp.
+              </div>
+            </div>
+            <div style={{ display: 'flex', gap: 8, alignItems: 'center' }}>
+              <button
+                type="button"
+                className="secondary"
+                onClick={async () => {
+                  await navigator.clipboard.writeText(getGroupReminderMsg(reminderTab));
+                  setCopiedReminderGroup(true);
+                  setTimeout(() => setCopiedReminderGroup(false), 2000);
+                }}
+                style={{ fontSize: 12, display: 'inline-flex', alignItems: 'center', gap: 5, padding: '6px 12px', background: '#fff' }}
+              >
+                {copiedReminderGroup ? <CheckCircle2 size={13} color="#059669" /> : <Copy size={13} />}
+                {copiedReminderGroup ? 'Copied to Clipboard!' : 'Copy Group Message'}
+              </button>
+              <a
+                href={`https://wa.me/?text=${encodeURIComponent(getGroupReminderMsg(reminderTab))}`}
+                target="_blank"
+                rel="noopener noreferrer"
+                style={{
+                  background: '#25D366',
+                  color: '#fff',
+                  padding: '6px 14px',
+                  borderRadius: 6,
+                  fontSize: 12,
+                  fontWeight: 700,
+                  textDecoration: 'none',
+                  display: 'inline-flex',
+                  alignItems: 'center',
+                  gap: 5,
+                }}
+              >
+                <MessageSquare size={13} /> Share to WhatsApp Group
+              </a>
+            </div>
+          </div>
+          <textarea
+            readOnly
+            value={getGroupReminderMsg(reminderTab)}
+            rows={5}
+            style={{
+              width: '100%',
+              fontSize: 12,
+              fontFamily: 'monospace',
+              background: '#fff',
+              border: '1px solid #cbd5e1',
+              borderRadius: 6,
+              padding: 10,
+              color: '#334155',
+              lineHeight: 1.5,
+              resize: 'vertical',
+            }}
+          />
+        </div>
+
+        {/* SECTION 2: 1-BY-1 EXPRESS SEND */}
+        {activeReminderList.length > 0 && (
+          <div style={{ background: '#f8fafc', border: '1px solid #e2e8f0', borderRadius: 10, padding: 16 }}>
+            {(()=>{
+              const curIdx = Math.min(Math.max(reminderSeqIdx ?? 0, 0), activeReminderList.length - 1);
+              const curBranch = activeReminderList[curIdx];
+              const contact = getBranchHeadContact(curBranch.sol);
+              const indMsg = getIndividualReminderMsg(curBranch, reminderTab);
+              const isSent = sentReminderSols.includes(curBranch.sol);
+
+              return (
+                <div>
+                  <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 12, flexWrap: 'wrap', gap: 8 }}>
+                    <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+                      <span style={{ fontSize: 11, fontWeight: 700, background: '#0284c7', color: '#fff', padding: '3px 8px', borderRadius: 12 }}>
+                        EXPRESS 1-BY-1 SENDER
+                      </span>
+                      <span style={{ fontSize: 13, fontWeight: 700, color: '#0f172a' }}>
+                        Branch {curIdx + 1} of {activeReminderList.length}
+                      </span>
+                      {isSent && (
+                        <span style={{ fontSize: 11, background: '#dcfce7', color: '#166534', padding: '2px 8px', borderRadius: 10, fontWeight: 700, display: 'inline-flex', alignItems: 'center', gap: 3 }}>
+                          <CheckCircle2 size={11} /> Sent
+                        </span>
+                      )}
+                    </div>
+                    <div style={{ fontSize: 12, color: '#64748b' }}>
+                      Progress: <b>{sentReminderSols.filter((s: string) => activeReminderList.some((b: any) => b.sol === s)).length}</b> of <b>{activeReminderList.length}</b> messaged
+                    </div>
+                  </div>
+
+                  <div style={{ background: '#fff', border: '1px solid #cbd5e1', borderRadius: 8, padding: 14, display: 'flex', justifyContent: 'space-between', alignItems: 'center', flexWrap: 'wrap', gap: 14 }}>
+                    <div>
+                      <div style={{ fontSize: 15, fontWeight: 700, color: '#0f172a' }}>
+                        {curBranch.name} <span style={{ color: '#64748b', fontSize: 13 }}>(SOL {curBranch.sol})</span>
+                      </div>
+                      <div style={{ fontSize: 12, color: '#475569', marginTop: 3 }}>
+                        Branch Head: <b>{contact.name}</b> &bull; Mobile: <b style={{ color: contact.hasPhone ? '#047857' : '#dc2626' }}>{contact.displayPhone}</b>
+                        {!contact.hasPhone && <span style={{ color: '#dc2626', marginLeft: 6 }}>(No valid mobile recorded)</span>}
+                      </div>
+                    </div>
+
+                    <div style={{ display: 'flex', gap: 8, alignItems: 'center', flexWrap: 'wrap' }}>
+                      <button
+                        type="button"
+                        className="secondary"
+                        disabled={curIdx === 0}
+                        onClick={() => setReminderSeqIdx(curIdx - 1)}
+                        style={{ padding: '6px 12px', fontSize: 12 }}
+                      >
+                        ← Prev
+                      </button>
+
+                      {contact.hasPhone ? (
+                        <a
+                          href={`https://wa.me/${contact.phone}?text=${encodeURIComponent(indMsg)}`}
+                          target="_blank"
+                          rel="noopener noreferrer"
+                          onClick={() => {
+                            setSentReminderSols((prev: string[]) => Array.from(new Set([...prev, curBranch.sol])));
+                            if (curIdx < activeReminderList.length - 1) {
+                              setReminderSeqIdx(curIdx + 1);
+                            }
+                          }}
+                          style={{
+                            background: '#25D366',
+                            color: '#fff',
+                            padding: '7px 16px',
+                            borderRadius: 6,
+                            fontSize: 12,
+                            fontWeight: 700,
+                            textDecoration: 'none',
+                            display: 'inline-flex',
+                            alignItems: 'center',
+                            gap: 6,
+                          }}
+                        >
+                          <MessageSquare size={13} /> Send via WhatsApp & Next →
+                        </a>
+                      ) : (
+                        <a
+                          href={`https://wa.me/?text=${encodeURIComponent(indMsg)}`}
+                          target="_blank"
+                          rel="noopener noreferrer"
+                          onClick={() => {
+                            setSentReminderSols((prev: string[]) => Array.from(new Set([...prev, curBranch.sol])));
+                            if (curIdx < activeReminderList.length - 1) {
+                              setReminderSeqIdx(curIdx + 1);
+                            }
+                          }}
+                          style={{
+                            background: '#0284c7',
+                            color: '#fff',
+                            padding: '7px 16px',
+                            borderRadius: 6,
+                            fontSize: 12,
+                            fontWeight: 700,
+                            textDecoration: 'none',
+                            display: 'inline-flex',
+                            alignItems: 'center',
+                            gap: 6,
+                          }}
+                        >
+                          <MessageSquare size={13} /> Share via WhatsApp & Next →
+                        </a>
+                      )}
+
+                      <button
+                        type="button"
+                        className="secondary"
+                        onClick={async () => {
+                          await navigator.clipboard.writeText(indMsg);
+                          setCopiedReminderSol(curBranch.sol);
+                          setTimeout(() => setCopiedReminderSol(null), 2000);
+                        }}
+                        style={{ padding: '6px 12px', fontSize: 12 }}
+                      >
+                        {copiedReminderSol === curBranch.sol ? <CheckCircle2 size={13} color="#059669" /> : <Copy size={13} />}
+                        {copiedReminderSol === curBranch.sol ? 'Copied' : 'Copy'}
+                      </button>
+
+                      <button
+                        type="button"
+                        className="secondary"
+                        disabled={curIdx >= activeReminderList.length - 1}
+                        onClick={() => setReminderSeqIdx(curIdx + 1)}
+                        style={{ padding: '6px 12px', fontSize: 12 }}
+                      >
+                        Skip →
+                      </button>
+                    </div>
+                  </div>
+                </div>
+              );
+            })()}
+          </div>
+        )}
+
+        {/* SECTION 3: ALL BRANCHES IN TAB */}
+        <div>
+          <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 10, flexWrap: 'wrap', gap: 10 }}>
+            <div>
+              <div style={{ fontSize: 14, fontWeight: 700, color: '#0f172a' }}>
+                All {activeReminderList.length} Branches in this Category
+              </div>
+              <div style={{ fontSize: 12, color: '#64748b' }}>
+                Click WhatsApp on any branch to open a pre-filled direct chat with the branch head.
+              </div>
+            </div>
+            <input
+              type="text"
+              placeholder="Search branch, SOL, officer name..."
+              value={reminderSearch}
+              onChange={(e) => setReminderSearch(e.target.value)}
+              style={{ padding: '6px 12px', fontSize: 12, width: 240, borderRadius: 6, border: '1px solid #cbd5e1' }}
+            />
+          </div>
+
+          <div className="tablewrap" style={{ maxHeight: 360, overflowY: 'auto' }}>
+            <table>
+              <thead>
+                <tr>
+                  <th style={{ width: 40 }}>#</th>
+                  <th>BRANCH & SOL</th>
+                  <th>BRANCH HEAD & MOBILE</th>
+                  <th>STATUS DETAILS</th>
+                  <th style={{ textAlign: 'center', width: 200 }}>ACTIONS</th>
+                </tr>
+              </thead>
+              <tbody>
+                {activeReminderList.length === 0 ? (
+                  <tr>
+                    <td colSpan={5} style={{ textAlign: 'center', padding: 24, color: '#059669', fontWeight: 600 }}>
+                      🎉 Excellent! No branches currently in this category.
+                    </td>
+                  </tr>
+                ) : (
+                  activeReminderList
+                    .filter((b: any) => {
+                      const q = reminderSearch.toLowerCase();
+                      if (!q) return true;
+                      const contact = getBranchHeadContact(b.sol);
+                      return (b.name + ' ' + b.sol + ' ' + contact.name + ' ' + contact.displayPhone).toLowerCase().includes(q);
+                    })
+                    .map((b: any, idx: number) => {
+                      const contact = getBranchHeadContact(b.sol);
+                      const indMsg = getIndividualReminderMsg(b, reminderTab);
+                      const isSent = sentReminderSols.includes(b.sol);
+                      const isCopied = copiedReminderSol === b.sol;
+
+                      let detailText = '';
+                      if (reminderTab === 'pending') detailText = 'Daily report pending';
+                      else if (reminderTab === 'login') detailText = 'Workspace not accessed';
+                      else if (reminderTab === 'nil') detailText = '0 SB & 0 CD opened today';
+                      else {
+                        const r = data?.pub?.rows?.find((x: any) => x.sol === b.sol);
+                        const parts = [];
+                        if (r && r.sb_growth < 0) parts.push(`SB -₹${fmt(Math.abs(r.sb_growth))}`);
+                        if (r && r.cd_growth < 0) parts.push(`CD -₹${fmt(Math.abs(r.cd_growth))}`);
+                        detailText = parts.join(' · ') || 'Negative MTD growth';
+                      }
+
+                      return (
+                        <tr key={b.sol} style={{ background: isSent ? '#f0fdf4' : undefined }}>
+                          <td style={{ fontSize: 12, color: '#64748b' }}>{idx + 1}</td>
+                          <td>
+                            <b>{b.name}</b>
+                            <small>SOL {b.sol}</small>
+                          </td>
+                          <td>
+                            <div><b>{contact.name}</b></div>
+                            <small style={{ color: contact.hasPhone ? '#047857' : '#94a3b8' }}>
+                              {contact.displayPhone}
+                            </small>
+                          </td>
+                          <td>
+                            <span style={{ fontSize: 11, fontWeight: 700, color: reminderTab === 'pending' ? '#dc2626' : reminderTab === 'login' ? '#ea580c' : '#7c3aed', background: '#f8fafc', padding: '2px 8px', borderRadius: 4, border: '1px solid #e2e8f0' }}>
+                              {detailText}
+                            </span>
+                          </td>
+                          <td style={{ textAlign: 'center' }}>
+                            <div style={{ display: 'inline-flex', gap: 6, alignItems: 'center' }}>
+                              {contact.hasPhone ? (
+                                <a
+                                  href={`https://wa.me/${contact.phone}?text=${encodeURIComponent(indMsg)}`}
+                                  target="_blank"
+                                  rel="noopener noreferrer"
+                                  onClick={() => setSentReminderSols((prev: string[]) => Array.from(new Set([...prev, b.sol])))}
+                                  style={{
+                                    background: '#25D366',
+                                    color: '#fff',
+                                    padding: '5px 10px',
+                                    borderRadius: 6,
+                                    fontSize: 11,
+                                    fontWeight: 700,
+                                    textDecoration: 'none',
+                                    display: 'inline-flex',
+                                    alignItems: 'center',
+                                    gap: 4,
+                                  }}
+                                  title="Open direct WhatsApp chat"
+                                >
+                                  <MessageSquare size={12} /> WhatsApp
+                                </a>
+                              ) : (
+                                <a
+                                  href={`https://wa.me/?text=${encodeURIComponent(indMsg)}`}
+                                  target="_blank"
+                                  rel="noopener noreferrer"
+                                  onClick={() => setSentReminderSols((prev: string[]) => Array.from(new Set([...prev, b.sol])))}
+                                  style={{
+                                    background: '#0284c7',
+                                    color: '#fff',
+                                    padding: '5px 10px',
+                                    borderRadius: 6,
+                                    fontSize: 11,
+                                    fontWeight: 700,
+                                    textDecoration: 'none',
+                                    display: 'inline-flex',
+                                    alignItems: 'center',
+                                    gap: 4,
+                                  }}
+                                  title="Share to WhatsApp"
+                                >
+                                  <MessageSquare size={12} /> Share
+                                </a>
+                              )}
+
+                              <button
+                                type="button"
+                                className="secondary"
+                                style={{ padding: '5px 8px', fontSize: 11 }}
+                                onClick={async () => {
+                                  await navigator.clipboard.writeText(indMsg);
+                                  setCopiedReminderSol(b.sol);
+                                  setTimeout(() => setCopiedReminderSol(null), 2000);
+                                }}
+                                title="Copy message text"
+                              >
+                                {isCopied ? <CheckCircle2 size={12} color="#059669" /> : <Copy size={12} />}
+                              </button>
+
+                              {isSent && (
+                                <span style={{ fontSize: 10, color: '#166534', fontWeight: 800, background: '#dcfce7', padding: '2px 5px', borderRadius: 4 }}>
+                                  ✓ SENT
+                                </span>
+                              )}
+                            </div>
+                          </td>
+                        </tr>
+                      );
+                    })
+                )}
+              </tbody>
+            </table>
+          </div>
+        </div>
+      </div>
+
+      {/* Modal Footer */}
+      <div style={{ padding: '12px 24px', borderTop: '1px solid #e2e8f0', background: '#f8fafc', display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+        <button
+          type="button"
+          className="secondary"
+          onClick={() => { setSentReminderSols([]); setReminderSeqIdx(0); }}
+          style={{ fontSize: 12, display: 'inline-flex', alignItems: 'center', gap: 5 }}
+        >
+          <RotateCcw size={13} /> Reset Sent Tracker
+        </button>
+        <button
+          type="button"
+          className="button"
+          onClick={() => { setShowReminderModal(false); setReminderSeqIdx(null); }}
+          style={{ padding: '8px 20px', fontSize: 13 }}
         >
           Done
         </button>
