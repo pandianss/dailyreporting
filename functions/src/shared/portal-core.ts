@@ -780,22 +780,7 @@ export async function handlePortalPost(
         at: now,
       };
       const contact: any = await store.get('contact:' + body.sol);
-      const v = sub.values || {};
-      const sbToday = Number(v.sb_growth_today || 0);
-      const cdToday = Number(v.cd_growth_today || 0);
-      const tdToday = Number(v.td_growth_today || 0);
-      const totalSanc = Number(v.sanction_retail_amount || 0) + Number(v.sanction_agri_amount || 0) + Number(v.sanction_msme_amount || 0);
-      const totalLpc = Number(v.lpc_retail_amount || 0) + Number(v.lpc_agri_amount || 0) + Number(v.lpc_msme_amount || 0);
-      const totalSma = Number(v.sma0_amount || 0) + Number(v.sma1_amount || 0) + Number(v.sma2_amount || 0);
       const imgUrl = `https://dailyreport-9265a.web.app/api/card?sol=${body.sol}&date=${date}`;
-
-      const dataSummary = `*DAY'S PERFORMANCE SUBMITTED:*\n` +
-        `• SB Growth Today: ${sbToday >= 0 ? '+' : ''}₹${Number(sbToday).toLocaleString('en-IN')} (Opened: +${v.sb_opened || 0})\n` +
-        `• CD Growth Today: ${cdToday >= 0 ? '+' : ''}₹${Number(cdToday).toLocaleString('en-IN')} (Opened: +${v.cd_opened || 0})\n` +
-        `• TD Growth Today: ${tdToday >= 0 ? '+' : ''}₹${Number(tdToday).toLocaleString('en-IN')}\n` +
-        `• Sanctions Today: ₹${Number(totalSanc).toLocaleString('en-IN')}\n` +
-        `• LPC Forwarded: ₹${Number(totalLpc).toLocaleString('en-IN')}\n` +
-        `• SMA Resolved: ₹${Number(totalSma).toLocaleString('en-IN')}`;
 
       const isSrm = body.status === 'srm_direction' || auth.user.role === 'srm';
       const isGm = isSrm || body.status === 'gm_direction' || auth.user.role === 'gm';
@@ -819,9 +804,7 @@ export async function handlePortalPost(
       const groupText = `*INDIAN OVERSEAS BANK - DINDIGUL REGION*\n` +
         `*DAILY PERFORMANCE REVIEW · ${date}*\n\n` +
         `📍 *Branch:* ${branch.name} (SOL ${body.sol})\n` +
-        `👤 *Branch Head:* ${contact?.name || 'Branch Head'}\n` +
-        `📋 *Report Revision:* Revision ${sub.revision}\n\n` +
-        `${dataSummary}\n\n` +
+        `👤 *Branch Head:* ${contact?.name || 'Branch Head'}\n\n` +
         `${reviewBlock}\n\n` +
         `📸 *Scorecard Image (Mobile Format):* ${imgUrl}\n` +
         `👉 https://dailyreport-9265a.web.app/?date=${date}&sol=${body.sol}`;
@@ -829,7 +812,6 @@ export async function handlePortalPost(
       const headText = `Dear ${contact?.name || 'Branch Head'},\n` +
         `Greetings from Regional Office.\n\n` +
         `*Daily Performance Review Feedback for ${branch.name} (SOL ${body.sol}) on ${date}:*\n\n` +
-        `${dataSummary}\n\n` +
         `${reviewBlock}\n\n` +
         `📸 *Your Day's Performance Scorecard Image (Mobile Format):* ${imgUrl}\n` +
         `👉 View your confirmed position: https://dailyreport-9265a.web.app/?date=${date}&sol=${body.sol}`;

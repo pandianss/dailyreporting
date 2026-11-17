@@ -157,28 +157,29 @@ export async function generateBranchPerformanceScorecard(
   }
 
   // =========================================================================
-  // MOBILE FORM FACTOR CANVAS SETUP (Portrait 720px width x Dynamic Height)
+  // HIGH-IMPACT MOBILE FORM FACTOR SETUP (Portrait 720px width)
   // Perfectly proportioned for smartphone screens and WhatsApp media viewers!
   // =========================================================================
   const W = 720;
-  const pad = 24;
-  const contentW = W - pad * 2; // 672px
-  const col2W = (contentW - 14) / 2; // 329px
+  const pad = 20;
+  const contentW = W - pad * 2; // 680px
+  const col2W = (contentW - 14) / 2; // 333px
 
-  // Calculate dynamic height
+  // Calculate dynamic review card height
   let estimatedReviewCardH = 0;
   if (hasReview) {
-    const charsPerLine = 48; // for mobile width font size 15px
+    const charsPerLine = 48;
     const estLines = Math.max(1, Math.ceil(reviewText.length / charsPerLine));
     estimatedReviewCardH = 88 + estLines * 22;
   }
 
-  let H = 135; // Header
-  H += 105; // Branch identity card
-  if (hasReview) H += estimatedReviewCardH + 16; // Reviewer feedback card
-  H += 26 + 155 + 12 + 125; // Section 1: Deposit Mobilization (Title + SB/CD + TD)
-  H += 26 + 155 + 12 + 105; // Section 2: Lending & Recovery (Title + Sanctions/LPC + SMA)
-  if (campLines.length > 0) H += 50; // Active campaigns
+  // Height calculations
+  const heroH = 175; // Prominent Hero Banner with huge Branch Name
+  let H = heroH + 16;
+  if (hasReview) H += estimatedReviewCardH + 16;
+  H += 26 + 155 + 12 + 125; // Section 1: Deposits
+  H += 26 + 155 + 12 + 105; // Section 2: Lending & Recovery
+  if (campLines.length > 0) H += 50;
   H += 55; // Footer
 
   const scale = 2; // High-density Retina 2x for ultra-sharp mobile rendering
@@ -191,8 +192,8 @@ export async function generateBranchPerformanceScorecard(
   ctx.imageSmoothingEnabled = true;
   ctx.imageSmoothingQuality = 'high';
 
-  // Background
-  ctx.fillStyle = '#f8fafc';
+  // Base Background
+  ctx.fillStyle = '#f1f5f9';
   ctx.fillRect(0, 0, W, H);
 
   // Outer Border
@@ -201,15 +202,14 @@ export async function generateBranchPerformanceScorecard(
   ctx.strokeRect(0, 0, W, H);
 
   // -------------------------------------------------------------------------
-  // 1. MOBILE TOP HEADER (IOB Navy Gradient)
+  // 1. HERO BRANCH BANNER (BRANCH NAME PROMINENT & HIGH CONTRAST)
   // -------------------------------------------------------------------------
-  const headerH = 118;
-  const grad = ctx.createLinearGradient(0, 0, W, headerH);
-  grad.addColorStop(0, '#0a3272');
-  grad.addColorStop(0.5, '#0d4b9f');
-  grad.addColorStop(1, '#1e3a8a');
-  ctx.fillStyle = grad;
-  ctx.fillRect(0, 0, W, headerH);
+  const heroGrad = ctx.createLinearGradient(0, 0, W, heroH);
+  heroGrad.addColorStop(0, '#061d47');
+  heroGrad.addColorStop(0.4, '#0a3272');
+  heroGrad.addColorStop(1, '#0d4b9f');
+  ctx.fillStyle = heroGrad;
+  ctx.fillRect(0, 0, W, heroH);
 
   // Logo attempt
   try {
@@ -222,116 +222,103 @@ export async function generateBranchPerformanceScorecard(
       setTimeout(res, 180);
     });
     if (logoImg.complete && logoImg.naturalWidth > 0) {
-      ctx.drawImage(logoImg, pad, 20, 44, 44);
+      ctx.drawImage(logoImg, pad, 16, 42, 42);
     }
   } catch {}
 
-  const titleX = pad + 54;
-  ctx.fillStyle = '#ffffff';
-  ctx.font = '800 21px -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif';
-  ctx.fillText('INDIAN OVERSEAS BANK', titleX, 38);
-
+  // Top Bank Strip
+  const bankStripX = pad + 52;
   ctx.fillStyle = '#93c5fd';
-  ctx.font = '700 11px -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif';
-  ctx.fillText('DINDIGUL REGION • DAILY PERFORMANCE SCORECARD', titleX, 56);
+  ctx.font = '800 12px -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif';
+  ctx.fillText('INDIAN OVERSEAS BANK • DINDIGUL REGION', bankStripX, 30);
 
-  // Date & Mode Pill (Top Right)
-  const datePillW = 160;
-  const datePillH = 46;
-  const datePillX = W - pad - datePillW;
-  const datePillY = 20;
+  ctx.fillStyle = '#e0f2fe';
+  ctx.font = '600 10px -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif';
+  ctx.fillText('DAILY PERFORMANCE SCORECARD (MOBILE)', bankStripX, 46);
 
+  // Top Date & Revision Pill (Top Right)
+  const topPillW = 160;
+  const topPillH = 42;
+  const topPillX = W - pad - topPillW;
+  const topPillY = 16;
   ctx.fillStyle = 'rgba(255, 255, 255, 0.16)';
-  roundRect(ctx, datePillX, datePillY, datePillW, datePillH, 8);
+  roundRect(ctx, topPillX, topPillY, topPillW, topPillH, 8);
   ctx.fill();
   ctx.strokeStyle = 'rgba(255, 255, 255, 0.35)';
   ctx.stroke();
 
   ctx.fillStyle = '#ffffff';
-  ctx.font = '800 13px -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif';
-  ctx.fillText(`📅 ${date}`, datePillX + 12, datePillY + 20);
-
-  ctx.fillStyle = '#bfdbfe';
+  ctx.font = '800 12px -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif';
+  ctx.fillText(`📅 ${date}`, topPillX + 12, topPillY + 18);
+  ctx.fillStyle = '#bae6fd';
   ctx.font = '600 10px -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif';
-  ctx.fillText('REPORTING DATE (IST)', datePillX + 12, datePillY + 36);
+  ctx.fillText(`Revision ${sub?.revision || 1} • IST`, topPillX + 12, topPillY + 34);
 
-  // Subheader banner
-  ctx.fillStyle = 'rgba(0, 0, 0, 0.18)';
-  ctx.fillRect(0, 88, W, 30);
-  ctx.fillStyle = '#e0f2fe';
-  ctx.font = '600 11px -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif';
-  ctx.fillText('📱 OFFICIAL REGIONAL REVIEW · MOBILE FORMAT FOR WHATSAPP', pad, 107);
+  // --- PROMINENT HERO BRANCH NAME & SOL ---
+  // Large prominent branch title banner
+  const branchHeroY = 72;
+  const branchNameUpper = branch.name.toUpperCase();
 
-  // -------------------------------------------------------------------------
-  // 2. BRANCH IDENTITY CARD
-  // -------------------------------------------------------------------------
-  let curY = 132;
-  const branchCardH = 92;
-  ctx.fillStyle = '#ffffff';
-  roundRect(ctx, pad, curY, contentW, branchCardH, 10);
-  ctx.fill();
-  ctx.strokeStyle = '#e2e8f0';
-  ctx.lineWidth = 1;
-  ctx.stroke();
+  // Adjust font size if branch name is extra long
+  const nameFontSize = branchNameUpper.length > 24 ? 24 : branchNameUpper.length > 18 ? 26 : 28;
+  ctx.font = `900 ${nameFontSize}px -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif`;
 
-  // Branch Name & SOL
-  ctx.fillStyle = '#0f172a';
-  ctx.font = '800 20px -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif';
-  const branchDisplay = branch.name.toUpperCase();
-  ctx.fillText(branchDisplay, pad + 16, curY + 32);
-
-  // SOL Pill
-  ctx.font = '800 11px -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif';
+  // Draw SOL badge first to measure
   const solText = `SOL ${branch.sol}`;
-  const solPillW = ctx.measureText(solText).width + 16;
-  const nameWidth = ctx.measureText(branchDisplay).width;
-  const solX = Math.min(pad + 16 + nameWidth + 12, W - pad - 95);
-  ctx.fillStyle = '#eff6ff';
-  roundRect(ctx, solX, curY + 14, solPillW, 24, 6);
+  ctx.font = '900 13px -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif';
+  const solW = ctx.measureText(solText).width + 18;
+  const solH = 26;
+  const solBadgeX = pad;
+  const solBadgeY = branchHeroY;
+
+  // Gold / Amber SOL Badge
+  ctx.fillStyle = '#fef08a';
+  roundRect(ctx, solBadgeX, solBadgeY, solW, solH, 6);
   ctx.fill();
-  ctx.strokeStyle = '#bfdbfe';
+  ctx.fillStyle = '#854d0e';
+  ctx.fillText(solText, solBadgeX + 9, solBadgeY + 18);
+
+  // Branch Name (Prominent, High Contrast White)
+  ctx.font = `900 ${nameFontSize}px -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif`;
+  ctx.fillStyle = '#ffffff';
+  const nameX = solBadgeX + solW + 12;
+  ctx.fillText(branchNameUpper, nameX, branchHeroY + 22);
+
+  // Subtitle / Contact Strip below Branch Name
+  const contactY = branchHeroY + 44;
+  ctx.fillStyle = 'rgba(255, 255, 255, 0.12)';
+  roundRect(ctx, pad, contactY, contentW, 44, 8);
+  ctx.fill();
+  ctx.strokeStyle = 'rgba(255, 255, 255, 0.22)';
   ctx.stroke();
-  ctx.fillStyle = '#1d4ed8';
-  ctx.fillText(solText, solX + 8, curY + 30);
 
-  // Branch Head & Mobile
-  ctx.fillStyle = '#334155';
-  ctx.font = '600 12px -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif';
-  ctx.fillText(`👤 Branch Head: ${headContact.name}`, pad + 16, curY + 58);
+  ctx.fillStyle = '#ffffff';
+  ctx.font = '700 13px -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif';
+  ctx.fillText(`👤 Branch Head: ${headContact.name}`, pad + 14, contactY + 20);
 
-  ctx.fillStyle = headContact.hasPhone ? '#047857' : '#94a3b8';
-  ctx.fillText(`📱 ${headContact.displayPhone}`, pad + 16, curY + 76);
+  ctx.fillStyle = headContact.hasPhone ? '#86efac' : '#cbd5e1';
+  ctx.font = '700 12px -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif';
+  ctx.fillText(`📱 ${headContact.displayPhone}`, pad + 14, contactY + 36);
 
-  // Revision & Submission Status
-  if (sub) {
-    const revText = `Revision ${sub.revision} • Submitted`;
-    ctx.fillStyle = '#059669';
-    ctx.font = '700 11px -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif';
-    const revW = ctx.measureText(revText).width;
-    ctx.fillText(revText, W - pad - 16 - revW, curY + 58);
+  const subTime = sub?.at ? new Date(sub.at).toLocaleTimeString('en-IN', { timeZone: 'Asia/Kolkata', hour: '2-digit', minute: '2-digit' }) : '';
+  const subStatusText = sub ? `✓ Submitted at ${subTime || '—'} IST` : 'Pending Submission';
+  ctx.fillStyle = sub ? '#86efac' : '#fca5a5';
+  ctx.font = '700 11px -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif';
+  const statusW = ctx.measureText(subStatusText).width;
+  ctx.fillText(subStatusText, W - pad - 14 - statusW, contactY + 28);
 
-    const subTime = sub.at ? new Date(sub.at).toLocaleTimeString('en-IN', { timeZone: 'Asia/Kolkata', hour: '2-digit', minute: '2-digit' }) : '';
-    if (subTime) {
-      ctx.fillStyle = '#64748b';
-      ctx.font = '500 11px -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif';
-      const timeText = `at ${subTime} IST`;
-      const timeW = ctx.measureText(timeText).width;
-      ctx.fillText(timeText, W - pad - 16 - timeW, curY + 76);
-    }
-  }
-
-  curY += branchCardH + 14;
+  let curY = heroH + 16;
 
   // -------------------------------------------------------------------------
-  // 3. REVIEWER REMARKS / GM DIRECTION CARD (Placed at TOP for Mobile Readability)
+  // 2. REVIEWER REMARKS / GM DIRECTION CARD (Placed at TOP for Mobile Readability)
   // -------------------------------------------------------------------------
   if (hasReview) {
     const cardBg = isGmDirection ? '#faf5ff' : isClarification ? '#fffbeb' : '#f0fdf4';
-    const cardBorder = isGmDirection ? '#c084fc' : isClarification ? '#fde047' : '#86efac';
+    const cardBorder = isGmDirection ? '#a855f7' : isClarification ? '#eab308' : '#22c55e';
     const badgeBg = isGmDirection ? '#7e22ce' : isClarification ? '#b45309' : '#15803d';
 
     ctx.fillStyle = cardBg;
-    roundRect(ctx, pad, curY, contentW, estimatedReviewCardH, 10);
+    roundRect(ctx, pad, curY, contentW, estimatedReviewCardH, 12);
     ctx.fill();
     ctx.strokeStyle = cardBorder;
     ctx.lineWidth = 2;
@@ -344,13 +331,13 @@ export async function generateBranchPerformanceScorecard(
       ? '⚠️ CLARIFICATION REQUIRED'
       : '✓ REGIONAL REVIEWER FEEDBACK';
     ctx.font = '800 11px -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif';
-    const badgeW = ctx.measureText(badgeText).width + 16;
+    const badgeW = ctx.measureText(badgeText).width + 18;
     ctx.fillStyle = badgeBg;
     roundRect(ctx, pad + 14, curY + 12, badgeW, 22, 6);
     ctx.fill();
 
     ctx.fillStyle = '#ffffff';
-    ctx.fillText(badgeText, pad + 22, curY + 27);
+    ctx.fillText(badgeText, pad + 23, curY + 27);
 
     // Remarks Body
     ctx.fillStyle = '#0f172a';
@@ -359,7 +346,7 @@ export async function generateBranchPerformanceScorecard(
 
     // Reviewer Attribution with Name, Date, and Time
     ctx.fillStyle = '#475569';
-    ctx.font = '600 11px -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif';
+    ctx.font = '700 11px -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif';
     const sigLine = `— Reviewed by ${reviewerName} (${reviewerRoleText}) on ${reviewDateStr} at ${reviewTimeStr} IST`;
     ctx.fillText(sigLine, pad + 16, Math.max(nextY + 6, curY + estimatedReviewCardH - 14));
 
@@ -367,19 +354,18 @@ export async function generateBranchPerformanceScorecard(
   }
 
   // -------------------------------------------------------------------------
-  // 4. SECTION 1: DEPOSIT MOBILIZATION TODAY (SB, CD, TD 100% SEPARATE)
+  // 3. SECTION 1: DEPOSIT MOBILIZATION TODAY (SB, CD, TD 100% SEPARATE)
   // -------------------------------------------------------------------------
   ctx.fillStyle = '#0f172a';
-  ctx.font = '800 13px -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif';
+  ctx.font = '900 13px -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif';
   ctx.fillText('01 · DEPOSIT MOBILIZATION & ACCOUNTS TODAY', pad, curY + 12);
   curY += 20;
 
-  // Row 1A: SB Card (col2W) & CD Card (col2W)
   const depCardH = 155;
 
   // --- SB CARD ---
   ctx.fillStyle = '#ffffff';
-  roundRect(ctx, pad, curY, col2W, depCardH, 10);
+  roundRect(ctx, pad, curY, col2W, depCardH, 12);
   ctx.fill();
   ctx.strokeStyle = sbToday >= 0 ? '#bbf7d0' : '#fecaca';
   ctx.lineWidth = 1.5;
@@ -387,15 +373,15 @@ export async function generateBranchPerformanceScorecard(
 
   // Top color bar
   ctx.fillStyle = sbToday >= 0 ? '#10b981' : '#ef4444';
-  roundRect(ctx, pad, curY, col2W, 5, 3);
+  roundRect(ctx, pad, curY, col2W, 6, 3);
   ctx.fill();
 
   ctx.fillStyle = '#475569';
-  ctx.font = '700 11px -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif';
+  ctx.font = '800 11px -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif';
   ctx.fillText('SB GROWTH TODAY', pad + 14, curY + 26);
 
   ctx.fillStyle = sbToday >= 0 ? '#059669' : '#dc2626';
-  ctx.font = '800 24px -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif';
+  ctx.font = '900 24px -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif';
   ctx.fillText(`${sbToday >= 0 ? '+' : ''}₹${fmt(sbToday)}`, pad + 14, curY + 56);
 
   // SB Opened Pill
@@ -407,31 +393,31 @@ export async function generateBranchPerformanceScorecard(
   ctx.fillText(`SB Opened: +${sbOpened} (${sbFunded} funded)`, pad + 22, curY + 89);
 
   ctx.fillStyle = '#64748b';
-  ctx.font = '500 11px -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif';
+  ctx.font = '600 11px -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif';
   ctx.fillText(`Confirmed MTD: ₹${fmt(cumSb)}`, pad + 14, curY + 122);
   ctx.fillStyle = sbToday >= 0 ? '#047857' : '#b91c1c';
-  ctx.font = '600 11px -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif';
+  ctx.font = '700 11px -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif';
   ctx.fillText(sbToday >= 0 ? '▲ Positive mobilization today' : '▼ Net deficit/degrowth today', pad + 14, curY + 140);
 
   // --- CD CARD ---
   const cdX = pad + col2W + 14;
   ctx.fillStyle = '#ffffff';
-  roundRect(ctx, cdX, curY, col2W, depCardH, 10);
+  roundRect(ctx, cdX, curY, col2W, depCardH, 12);
   ctx.fill();
   ctx.strokeStyle = cdToday >= 0 ? '#bbf7d0' : '#fecaca';
   ctx.lineWidth = 1.5;
   ctx.stroke();
 
   ctx.fillStyle = cdToday >= 0 ? '#10b981' : '#ef4444';
-  roundRect(ctx, cdX, curY, col2W, 5, 3);
+  roundRect(ctx, cdX, curY, col2W, 6, 3);
   ctx.fill();
 
   ctx.fillStyle = '#475569';
-  ctx.font = '700 11px -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif';
+  ctx.font = '800 11px -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif';
   ctx.fillText('CD GROWTH TODAY', cdX + 14, curY + 26);
 
   ctx.fillStyle = cdToday >= 0 ? '#059669' : '#dc2626';
-  ctx.font = '800 24px -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif';
+  ctx.font = '900 24px -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif';
   ctx.fillText(`${cdToday >= 0 ? '+' : ''}₹${fmt(cdToday)}`, cdX + 14, curY + 56);
 
   // CD Opened Pill
@@ -443,10 +429,10 @@ export async function generateBranchPerformanceScorecard(
   ctx.fillText(`CD Opened: +${cdOpened} (${cdFunded} funded)`, cdX + 22, curY + 89);
 
   ctx.fillStyle = '#64748b';
-  ctx.font = '500 11px -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif';
+  ctx.font = '600 11px -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif';
   ctx.fillText(`Confirmed MTD: ₹${fmt(cumCd)}`, cdX + 14, curY + 122);
   ctx.fillStyle = cdToday >= 0 ? '#047857' : '#b91c1c';
-  ctx.font = '600 11px -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif';
+  ctx.font = '700 11px -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif';
   ctx.fillText(cdToday >= 0 ? '▲ Positive accretion today' : '▼ Net deficit/degrowth today', cdX + 14, curY + 140);
 
   curY += depCardH + 12;
@@ -454,27 +440,26 @@ export async function generateBranchPerformanceScorecard(
   // --- TD (TERM DEPOSITS) & LOW BALANCE FUNDING FULL-WIDTH CARD ---
   const tdCardH = 125;
   ctx.fillStyle = '#ffffff';
-  roundRect(ctx, pad, curY, contentW, tdCardH, 10);
+  roundRect(ctx, pad, curY, contentW, tdCardH, 12);
   ctx.fill();
   ctx.strokeStyle = tdToday >= 0 ? '#bae6fd' : '#fecaca';
   ctx.lineWidth = 1.5;
   ctx.stroke();
 
   ctx.fillStyle = tdToday >= 0 ? '#0284c7' : '#ef4444';
-  roundRect(ctx, pad, curY, contentW, 5, 3);
+  roundRect(ctx, pad, curY, contentW, 6, 3);
   ctx.fill();
 
-  // TD Details Left Side
   ctx.fillStyle = '#475569';
-  ctx.font = '700 11px -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif';
+  ctx.font = '800 11px -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif';
   ctx.fillText('TD (TERM DEPOSIT) MOBILIZATION TODAY', pad + 16, curY + 28);
 
   ctx.fillStyle = tdToday >= 0 ? '#0284c7' : '#dc2626';
-  ctx.font = '800 24px -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif';
+  ctx.font = '900 24px -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif';
   ctx.fillText(`${tdToday >= 0 ? '+' : ''}₹${fmt(tdToday)}`, pad + 16, curY + 58);
 
   ctx.fillStyle = '#64748b';
-  ctx.font = '500 11px -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif';
+  ctx.font = '600 11px -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif';
   ctx.fillText(`Total Deposits Mobilized Today (SB+CD+TD): ₹${fmt(totalDepToday)}`, pad + 16, curY + 84);
   ctx.fillText(tdToday >= 0 ? '▲ Positive term deposits accretion today' : '▼ Term deposit outflow today', pad + 16, curY + 104);
 
@@ -489,86 +474,85 @@ export async function generateBranchPerformanceScorecard(
   ctx.stroke();
 
   ctx.fillStyle = '#166534';
-  ctx.font = '700 11px -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif';
+  ctx.font = '800 11px -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif';
   ctx.fillText('⚡ LOW BALANCE FUNDING (AUTO-SYNC)', fundBadgeX + 12, curY + 44);
 
   ctx.fillStyle = '#15803d';
-  ctx.font = '800 14px -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif';
+  ctx.font = '900 14px -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif';
   ctx.fillText(`${bDone.length} of ${bFund.length} accounts funded`, fundBadgeX + 12, curY + 66);
 
   ctx.fillStyle = '#047857';
-  ctx.font = '600 11px -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif';
+  ctx.font = '700 11px -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif';
   ctx.fillText(`₹${fmt(bAmt)} mobilized today`, fundBadgeX + 12, curY + 86);
 
   curY += tdCardH + 16;
 
   // -------------------------------------------------------------------------
-  // 5. SECTION 2: LENDING & RECOVERY (SANCTIONS, LPC & SMA)
+  // 4. SECTION 2: LENDING & RECOVERY (SANCTIONS, LPC & SMA)
   // -------------------------------------------------------------------------
   ctx.fillStyle = '#0f172a';
-  ctx.font = '800 13px -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif';
+  ctx.font = '900 13px -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif';
   ctx.fillText('02 · LENDING & RECOVERY PERFORMANCE TODAY', pad, curY + 12);
   curY += 20;
 
-  // Row 2A: Sanctions Card (col2W) & Forwarded to LPC Card (col2W)
   const lendCardH = 155;
 
   // --- SANCTIONS CARD ---
   ctx.fillStyle = '#ffffff';
-  roundRect(ctx, pad, curY, col2W, lendCardH, 10);
+  roundRect(ctx, pad, curY, col2W, lendCardH, 12);
   ctx.fill();
   ctx.strokeStyle = totalSancCnt > 0 ? '#bbf7d0' : '#e2e8f0';
   ctx.lineWidth = 1.5;
   ctx.stroke();
 
   ctx.fillStyle = '#059669';
-  roundRect(ctx, pad, curY, col2W, 5, 3);
+  roundRect(ctx, pad, curY, col2W, 6, 3);
   ctx.fill();
 
   ctx.fillStyle = '#475569';
-  ctx.font = '700 11px -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif';
+  ctx.font = '800 11px -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif';
   ctx.fillText('LOAN SANCTIONS TODAY', pad + 14, curY + 26);
 
   ctx.fillStyle = totalSancCnt > 0 ? '#059669' : '#64748b';
-  ctx.font = '800 22px -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif';
+  ctx.font = '900 22px -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif';
   ctx.fillText(`₹${fmt(totalSancAmt)}`, pad + 14, curY + 54);
 
   ctx.fillStyle = '#065f46';
-  ctx.font = '700 11px -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif';
+  ctx.font = '800 11px -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif';
   ctx.fillText(`${totalSancCnt} loans sanctioned today`, pad + 14, curY + 74);
 
   ctx.fillStyle = '#475569';
-  ctx.font = '500 11px -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif';
+  ctx.font = '600 11px -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif';
   ctx.fillText(`• Retail: ${sancRCount} (₹${fmt(sancRAmt)})`, pad + 14, curY + 98);
   ctx.fillText(`• Agri: ${sancACount} (₹${fmt(sancAAmt)})`, pad + 14, curY + 118);
   ctx.fillText(`• MSME: ${sancMCount} (₹${fmt(sancMAmt)})`, pad + 14, curY + 138);
 
   // --- LPC FORWARDED CARD ---
   ctx.fillStyle = '#ffffff';
-  roundRect(ctx, cdX, curY, col2W, lendCardH, 10);
+  roundRect(ctx, cdX, curY, col2W, lendCardH, 12);
   ctx.fill();
   ctx.strokeStyle = totalLpcCnt > 0 ? '#bae6fd' : '#e2e8f0';
   ctx.lineWidth = 1.5;
   ctx.stroke();
 
   ctx.fillStyle = '#0284c7';
-  roundRect(ctx, cdX, curY, col2W, 5, 3);
+  roundRect(ctx, cdX, curY, col2W, 6, 3);
   ctx.fill();
 
   ctx.fillStyle = '#475569';
-  ctx.font = '700 11px -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif';
+  ctx.font = '800 11px -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif';
   ctx.fillText('FORWARDED TO LPC TODAY', cdX + 14, curY + 26);
 
   ctx.fillStyle = totalLpcCnt > 0 ? '#0284c7' : '#64748b';
-  ctx.font = '800 22px -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif';
+  ctx.font = '900 22px -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif';
   ctx.fillText(`₹${fmt(totalLpcAmt)}`, cdX + 14, curY + 54);
 
   ctx.fillStyle = '#0369a1';
-  ctx.font = '700 11px -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif';
+  ctx.font = '800 11px -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif';
   ctx.fillText(`${totalLpcCnt} proposals sent to LPC`, cdX + 14, curY + 74);
 
   ctx.fillStyle = '#475569';
-  ctx.font = '500 11px -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif';
+  ctx.font = '600 11px -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif';
   ctx.fillText(`• Retail LPC: ${lpcRCount} (₹${fmt(lpcRAmt)})`, cdX + 14, curY + 98);
   ctx.fillText(`• Agri LPC: ${lpcACount} (₹${fmt(lpcAAmt)})`, cdX + 14, curY + 118);
   ctx.fillText(`• MSME LPC: ${lpcMCount} (₹${fmt(lpcMAmt)})`, cdX + 14, curY + 138);
@@ -578,26 +562,26 @@ export async function generateBranchPerformanceScorecard(
   // --- SMA ELIMINATIONS FULL-WIDTH CARD ---
   const smaCardH = 105;
   ctx.fillStyle = '#ffffff';
-  roundRect(ctx, pad, curY, contentW, smaCardH, 10);
+  roundRect(ctx, pad, curY, contentW, smaCardH, 12);
   ctx.fill();
   ctx.strokeStyle = totalSmaCnt > 0 ? '#bbf7d0' : '#e2e8f0';
   ctx.lineWidth = 1.5;
   ctx.stroke();
 
   ctx.fillStyle = '#059669';
-  roundRect(ctx, pad, curY, contentW, 5, 3);
+  roundRect(ctx, pad, curY, contentW, 6, 3);
   ctx.fill();
 
   ctx.fillStyle = '#475569';
-  ctx.font = '700 11px -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif';
+  ctx.font = '800 11px -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif';
   ctx.fillText('SMA ELIMINATIONS TODAY (OVERDUE RESOLUTION)', pad + 16, curY + 26);
 
   ctx.fillStyle = totalSmaCnt > 0 ? '#059669' : '#64748b';
-  ctx.font = '800 24px -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif';
+  ctx.font = '900 24px -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif';
   ctx.fillText(`₹${fmt(totalSmaAmt)}`, pad + 16, curY + 56);
 
   ctx.fillStyle = '#065f46';
-  ctx.font = '700 12px -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif';
+  ctx.font = '800 12px -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif';
   ctx.fillText(`${totalSmaCnt} overdue accounts eliminated`, pad + 16, curY + 80);
 
   // SMA 0, 1, 2 breakdown pills on right
@@ -609,7 +593,7 @@ export async function generateBranchPerformanceScorecard(
   ctx.stroke();
 
   ctx.fillStyle = '#334155';
-  ctx.font = '600 11px -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif';
+  ctx.font = '700 11px -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif';
   ctx.fillText(`• SMA 0: ${sma0Cnt} accts (₹${fmt(sma0Amt)})`, smaBreakX + 10, curY + 40);
   ctx.fillText(`• SMA 1: ${sma1Cnt} accts (₹${fmt(sma1Amt)})`, smaBreakX + 10, curY + 58);
   ctx.fillText(`• SMA 2: ${sma2Cnt} accts (₹${fmt(sma2Amt)})`, smaBreakX + 10, curY + 76);
@@ -617,7 +601,7 @@ export async function generateBranchPerformanceScorecard(
   curY += smaCardH + 14;
 
   // -------------------------------------------------------------------------
-  // 6. SECTION 3: CAMPAIGN ADDITIONS (IF ANY)
+  // 5. SECTION 3: CAMPAIGN ADDITIONS (IF ANY)
   // -------------------------------------------------------------------------
   if (campLines.length > 0) {
     ctx.fillStyle = '#eff6ff';
@@ -627,13 +611,13 @@ export async function generateBranchPerformanceScorecard(
     ctx.stroke();
 
     ctx.fillStyle = '#1e40af';
-    ctx.font = '700 11px -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif';
+    ctx.font = '800 11px -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif';
     ctx.fillText(`🎯 ACTIVE CAMPAIGN ADDITIONS: ${campLines.join('  •  ')}`, pad + 14, curY + 25);
     curY += 48;
   }
 
   // -------------------------------------------------------------------------
-  // 7. FOOTER
+  // 6. FOOTER
   // -------------------------------------------------------------------------
   const footerY = H - 36;
   ctx.strokeStyle = '#cbd5e1';
@@ -644,7 +628,7 @@ export async function generateBranchPerformanceScorecard(
   ctx.stroke();
 
   ctx.fillStyle = '#64748b';
-  ctx.font = '600 10px -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif';
+  ctx.font = '700 10px -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif';
   ctx.fillText('INDIAN OVERSEAS BANK • REGIONAL OFFICE, DINDIGUL', pad, footerY + 20);
 
   const genTime = new Date().toLocaleString('en-IN', { timeZone: 'Asia/Kolkata' });
@@ -660,7 +644,7 @@ export async function generateBranchPerformanceScorecard(
   const imgUrl = `https://dailyreport-9265a.web.app/api/card?sol=${branch.sol}&date=${date}`;
 
   // =========================================================================
-  // ACCOMPANYING WHATSAPP TEXT (Includes Reviewer Name, Date, Time)
+  // ACCOMPANYING WHATSAPP TEXT (Only Review in Text - Performance is in Image)
   // =========================================================================
   const reviewHeading = isGmDirection
     ? '★ *GENERAL MANAGER (GM) EXECUTIVE DIRECTION:*'
@@ -674,22 +658,13 @@ export async function generateBranchPerformanceScorecard(
 
 📍 *Branch:* ${branch.name} (SOL ${branch.sol})
 👤 *Branch Head:* ${headContact.name}
-📋 *Submission:* Revision ${sub?.revision || 1}
 
-📊 *DAY'S PERFORMANCE SUMMARY:*
-• *SB Growth Today:* ${sbToday >= 0 ? '+' : ''}₹${fmt(sbToday)} (Opened: +${sbOpened} [${sbFunded} funded])
-• *CD Growth Today:* ${cdToday >= 0 ? '+' : ''}₹${fmt(cdToday)} (Opened: +${cdOpened} [${cdFunded} funded])
-• *TD Growth Today:* ${tdToday >= 0 ? '+' : ''}₹${fmt(tdToday)}
-• *Loan Sanctions Today:* ₹${fmt(totalSancAmt)} (${totalSancCnt} loans)
-• *LPC Forwarded Today:* ₹${fmt(totalLpcAmt)} (${totalLpcCnt} proposals)
-• *SMA Eliminations Today:* ₹${fmt(totalSmaAmt)} (${totalSmaCnt} accounts)
-${bDone.length > 0 ? `• *Low Balance Funding:* ${bDone.length} accounts (₹${fmt(bAmt)} mobilized)\n` : ''}${campLines.length > 0 ? `• *Campaigns:* ${campLines.join(', ')}\n` : ''}
 ${hasReview ? `${reviewHeading}
 "${reviewText}"
 — *Reviewed by:* ${reviewerName} (${reviewerRoleText})
-📅 *Date:* ${reviewDateStr}  •  ⏰ *Time:* ${reviewTimeStr} IST\n` : ''}
-📸 *Branch performance scorecard image (mobile format) attached.*
-(View card: ${imgUrl})
+📅 *Date:* ${reviewDateStr}  •  ⏰ *Time:* ${reviewTimeStr} IST
+` : '✓ *DAILY PERFORMANCE SUBMISSION REVIEWED*\n'}
+📸 *Branch performance scorecard image (mobile format) attached above.*
 👉 View confirmed position: https://dailyreport-9265a.web.app/?date=${date}&sol=${branch.sol}`;
 
   const headTextSummary =
@@ -698,20 +673,12 @@ Greetings from Regional Office.
 
 *Daily Performance Review & Feedback for ${branch.name} (SOL ${branch.sol}) on ${date}:*
 
-📊 *DATA SUBMITTED TODAY:*
-• *SB Growth Today:* ${sbToday >= 0 ? '+' : ''}₹${fmt(sbToday)} (Opened: +${sbOpened} [${sbFunded} funded])
-• *CD Growth Today:* ${cdToday >= 0 ? '+' : ''}₹${fmt(cdToday)} (Opened: +${cdOpened} [${cdFunded} funded])
-• *TD Growth Today:* ${tdToday >= 0 ? '+' : ''}₹${fmt(tdToday)}
-• *Loan Sanctions Today:* ₹${fmt(totalSancAmt)} (${totalSancCnt} loans)
-• *LPC Forwarded Today:* ₹${fmt(totalLpcAmt)} (${totalLpcCnt} proposals)
-• *SMA Eliminations Today:* ₹${fmt(totalSmaAmt)} (${totalSmaCnt} accounts)
-${bDone.length > 0 ? `• *Low Balance Funding:* ${bDone.length} accounts (₹${fmt(bAmt)} mobilized)\n` : ''}${campLines.length > 0 ? `• *Campaigns:* ${campLines.join(', ')}\n` : ''}
 ${hasReview ? `${reviewHeading}
 "${reviewText}"
 — *Reviewed by:* ${reviewerName} (${reviewerRoleText})
-📅 *Date:* ${reviewDateStr}  •  ⏰ *Time:* ${reviewTimeStr} IST\n` : ''}
-📸 *Your Day's Performance Scorecard Image (mobile format) is attached.*
-(View online card: ${imgUrl})
+📅 *Date:* ${reviewDateStr}  •  ⏰ *Time:* ${reviewTimeStr} IST
+` : '✓ *Your daily performance report has been reviewed.*\n'}
+📸 *Your Day's Performance Scorecard Image (mobile format) is attached above.*
 👉 View your confirmed position: https://dailyreport-9265a.web.app/?date=${date}&sol=${branch.sol}`;
 
   return { blob, dataUrl, file, textSummary, headTextSummary, imgUrl };
