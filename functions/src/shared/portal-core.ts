@@ -36,7 +36,7 @@ export interface Store {
 
 export interface ModelHelpers {
   cutoffs: (date: string) => { yesterday: string; prior: string; first: boolean; april: boolean };
-  validateSnapshot: (rows: any[], branches: Branch[], campaigns: any[], date: string) => any[];
+  validateSnapshot: (rows: any[], branches: Branch[], campaigns: any[], date: string, allowPartial?: boolean) => any[];
   validateEntry: (input: any, snapshot: any, campaigns: any[], date: string) => any;
   validateRepayments: (rows: any[], branches: Branch[]) => any[];
   repaymentsDueInNextDays: (repayments: any[], date: string, days?: number) => any[];
@@ -48,6 +48,8 @@ export interface ModelHelpers {
   number: (v: any, label: string, integer?: boolean, signed?: boolean) => number;
   validateCampaignData?: (rows: any[], branches: Branch[]) => any[];
   parseCampaignCSV?: (text: string) => any[];
+  baseFields?: string[];
+  accountFields?: string[];
 }
 
 export class HttpError extends Error {
@@ -63,22 +65,20 @@ const SESSION_TTL_MS = 8 * 60 * 60 * 1000; // 8 hours
 const AUTH_WINDOW_MS = 15 * 60 * 1000; // 15 minutes
 
 export function formatReviewerAttribution(name?: string | null, role?: string | null): string {
-  const n = (name || '').trim();
-  const r = (role || '').trim();
+  let n = (name || '').trim().replace(/\(\s*\)/g, '').trim();
+  let r = (role || '').trim().replace(/\(\s*\)/g, '').trim();
 
-  if (!n && !r) return 'Regional Office';
-  if (!r) return n;
-  if (!n) return r;
+  if (!n && !r) return 'Regional Reviewer';
 
   const nLow = n.toLowerCase();
   const rLow = r.toLowerCase();
 
-  if (nLow === rLow || rLow.startsWith(nLow) || nLow.startsWith(rLow)) {
-    return r.length >= n.length ? r : n;
+  if (!n || nLow === 'reviewer' || nLow === 'regional office' || nLow === 'ro officer') {
+    return r || 'Regional Reviewer';
   }
 
-  if (nLow === 'regional office' || nLow === 'reviewer' || nLow === 'regional reviewer') {
-    return r;
+  if (!r || nLow === rLow || rLow.startsWith(nLow) || nLow.startsWith(rLow)) {
+    return n;
   }
 
   return `${n} (${r})`;
@@ -696,41 +696,50 @@ export async function handlePortalPost(
     } else if (action === 'publish') {
       requireAdmin();
       const cf = model.cutoffs(date);
-      if (body.cutoff !== cf.yesterday) {
+      const old = await store.get('pub:' + date);
+      const cutoff = body.cutoff || old?.cutoff || cf.yesterday;
+      if (cutoff !== cf.yesterday) {
         throw new Error('Source cutoff must be yesterday');
       }
-      if (
-        !String(body.baseline || '').trim() ||
-        !String(body.fundedDefinition || '').trim() ||
-        !body.deadline
-      ) {
+      const baseline = String(body.baseline || old?.baseline || '').trim();
+      const fundedDefinition = String(body.fundedDefinition || old?.fundedDefinition || '').trim();
+      const deadline = body.deadline || old?.deadline || '17:00';
+      if (!baseline || !fundedDefinition || !deadline) {
         throw new Error('Growth baseline, funded definition and deadline required');
       }
       const campaigns = await store.list('campaign:');
-      const rows = model.validateSnapshot(body.rows, branches, campaigns, date);
-      const old = await store.get('pub:' + date);
-      if (old && !String(body.reason || '').trim()) {
+      let rows: any[] = [];
+      if (old && Array.isArray(body.rows) && body.rows.length > 0 && body.rows.length < branches.length) {
+        const partial: any[] = model.validateSnapshot(body.rows, branches, campaigns, date, true);
+        const map = new Map(old.rows.map((r: any) => [r.sol, r]));
+        for (const p of partial) map.set(p.sol, { ...((map.get(p.sol) as any) || {}), ...p });
+        rows = branches.map((b) => map.get(b.sol)).filter(Boolean);
+      } else {
+        rows = model.validateSnapshot(body.rows, branches, campaigns, date);
+      }
+      const reason = String(body.reason || (old ? 'Corrected publication data' : '')).trim();
+      if (old && !reason) {
         throw new Error('Enter a reason for the corrected publication');
       }
       const pub = {
         date,
         rows,
         version: (old?.version || 0) + 1,
-        cutoff: body.cutoff,
-        baseline: body.baseline,
-        fundedDefinition: body.fundedDefinition,
-        deadline: body.deadline,
+        cutoff,
+        baseline,
+        fundedDefinition,
+        deadline,
         campaigns: campaigns.filter((x: any) => x.start <= date && x.end >= date),
         publishedAt: now,
-        by: auth.user.email,
-        reason: body.reason || '',
+        by: auth.user.email || auth.user.name || 'Regional Administrator',
+        reason,
       };
       const key = 'out:request:' + date;
       const job = {
         date,
         status: 'pending',
         type: 'Submission request',
-        text: `Daily performance reporting is open for ${date}. Please submit by ${body.deadline} IST. ${input.expectedOrigin}/?date=${date}`,
+        text: `Daily performance reporting is open for ${date}. Please submit by ${deadline} IST. ${input.expectedOrigin}/?date=${date}`,
       };
       await store.batch([
         { type: 'put', key: 'pub:' + date, value: pub },
@@ -738,6 +747,42 @@ export async function handlePortalPost(
         { type: 'putIfAbsent', key, value: job },
       ]);
       await sendOutboxJob(store, config, key);
+    } else if (action === 'update-branch-snapshot') {
+      requireAdmin();
+      const old = await store.get('pub:' + date);
+      if (!old) {
+        throw new Error('Publish daily data for this date first');
+      }
+      const sol = String(body.sol || '').padStart(4, '0');
+      if (!branches.find((b) => b.sol === sol)) {
+        throw new Error('Unknown SOL ' + sol);
+      }
+      const branchRow = old.rows.find((r: any) => r.sol === sol);
+      if (!branchRow) {
+        throw new Error('Branch SOL ' + sol + ' not found in published snapshot');
+      }
+      const updates = body.values || {};
+      const updatedRow = { ...branchRow };
+      const baseFieldsList = model.baseFields || ['sb_growth', 'cd_growth'];
+      const accountFieldsList = model.accountFields || [];
+      for (const [k, v] of Object.entries(updates)) {
+        if (baseFieldsList.includes(k)) {
+          updatedRow[k] = model.number(v, sol + ' ' + k, k.endsWith('count') || accountFieldsList.includes(k), k.endsWith('growth'));
+        }
+      }
+      const nextRows = old.rows.map((r: any) => (r.sol === sol ? updatedRow : r));
+      const pub = {
+        ...old,
+        rows: nextRows,
+        version: old.version + 1,
+        publishedAt: now,
+        by: auth.user.email || auth.user.name || 'Regional Administrator',
+        reason: String(body.reason || `Updated confirmed position for SOL ${sol}`).trim(),
+      };
+      await store.batch([
+        { type: 'put', key: 'pub:' + date, value: pub },
+        { type: 'put', key: 'history:' + date + ':' + pub.version, value: pub },
+      ]);
     } else if (action === 'submit') {
       model.cutoffs(date);
       const sol = auth.user.role === 'branch' ? auth.user.sol : body.sol;
@@ -796,18 +841,29 @@ export async function handlePortalPost(
       const revTimeStr = new Date(now).toLocaleTimeString('en-IN', { timeZone: 'Asia/Kolkata', hour: '2-digit', minute: '2-digit' });
       const revDateStr = date;
 
+      const customRole = body.reviewerRole && String(body.reviewerRole).trim();
       const reviewerRole = isSrm
         ? 'Senior Regional Manager (SRM)'
         : isGm
         ? 'General Manager (GM)'
-        : auth.user.role === 'admin'
-        ? 'Regional Administrator'
-        : 'Regional Reviewer';
+        : customRole || (auth.user.role === 'admin' ? 'Regional Administrator' : 'Regional Reviewer');
 
-      const reviewerName = (auth.user.name && auth.user.name.trim())
+      const customName = body.reviewerName && String(body.reviewerName).trim();
+      const reviewerName = customName
+        || (auth.user.name && auth.user.name.trim())
         || (auth.user.email && auth.user.email.trim() ? auth.user.email.split('@')[0].toUpperCase() : '')
         || (auth.user.phone ? 'RO Officer (' + auth.user.phone.slice(-4) + ')' : '')
         || (isGm ? 'General Manager (GM)' : 'Regional Reviewer');
+
+      if (customName && auth.user.phone && customName !== auth.user.name) {
+        const acc = await store.get('account:' + auth.user.phone);
+        if (acc) {
+          await store.put('account:' + auth.user.phone, {
+            ...acc,
+            name: customName,
+          });
+        }
+      }
 
       const reviewerSig = formatReviewerAttribution(reviewerName, reviewerRole);
 

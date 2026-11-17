@@ -1,8 +1,8 @@
 'use client';
 import {useEffect,useState,useRef} from 'react';
-import {LayoutDashboard,Upload,ClipboardList,MessageSquare,Users,Flag,ArrowUpRight,ArrowDownRight,CheckCircle2,Clock,ChevronRight,Download,Plus,Send,RefreshCw,Building2,ExternalLink,UserCheck,X,FastForward,RotateCcw,Copy,Phone,Sparkles,Megaphone} from 'lucide-react';
+import {LayoutDashboard,Upload,ClipboardList,MessageSquare,Users,Flag,ArrowUpRight,ArrowDownRight,CheckCircle2,Clock,ChevronRight,Download,Plus,Send,RefreshCw,Building2,ExternalLink,UserCheck,X,FastForward,RotateCcw,Copy,Phone,Sparkles,Megaphone,Edit} from 'lucide-react';
 import Login from './Login';
-import { generateBranchPerformanceScorecard } from './performance-image';
+import { generateBranchPerformanceScorecard, formatReviewerAttribution } from './performance-image';
 import { generateAnnouncementImage } from './announcement-image';
 import {baseFields,parseCSV,validateSnapshot,cutoffs,sanctionSectors,sanctionSectorLabels,sanctionEntryFields,parseDirectoryCSV,validateDirectory,parseCampaignCSV,validateCampaignData} from './model.mjs';
 const sectorLabels:Record<string,string>=sanctionSectorLabels;
@@ -262,6 +262,46 @@ const [copiedReminderGroup, setCopiedReminderGroup] = useState(false);
 const [copiedReminderSol, setCopiedReminderSol] = useState<string | null>(null);
 const [reminderSearch, setReminderSearch] = useState('');
 const [lakhsConfirmModal, setLakhsConfirmModal] = useState<any>(null);
+const [editSnapModal, setEditSnapModal] = useState<any>(null);
+const [reviewerNameInput, setReviewerNameInput] = useState('');
+const [reviewerRoleInput, setReviewerRoleInput] = useState('');
+
+function openEditSnap(solToEdit: string) {
+  const branchObj = data?.branches?.find((b: any) => b.sol === solToEdit) || { sol: solToEdit, name: 'Branch ' + solToEdit };
+  const snapObj = data?.pub?.rows?.find((r: any) => r.sol === solToEdit) || {};
+  setEditSnapModal({
+    sol: solToEdit,
+    branch: branchObj,
+    sb_growth: snapObj.sb_growth != null ? String(snapObj.sb_growth) : '0',
+    cd_growth: snapObj.cd_growth != null ? String(snapObj.cd_growth) : '0',
+    reason: 'Data correction for SOL ' + solToEdit,
+    saving: false,
+    error: '',
+  });
+}
+
+async function handleSaveEditSnap() {
+  if (!editSnapModal) return;
+  setEditSnapModal((prev: any) => ({ ...prev, saving: true, error: '' }));
+  try {
+    const ok = await act({
+      action: 'update-branch-snapshot',
+      sol: editSnapModal.sol,
+      values: {
+        sb_growth: editSnapModal.sb_growth,
+        cd_growth: editSnapModal.cd_growth,
+      },
+      reason: editSnapModal.reason || `Correction of confirmed position for SOL ${editSnapModal.sol}`,
+    }, `Confirmed position for ${editSnapModal.branch.name} (SOL ${editSnapModal.sol}) updated successfully.`);
+    if (ok) {
+      setEditSnapModal(null);
+    } else {
+      setEditSnapModal((prev: any) => ({ ...prev, saving: false }));
+    }
+  } catch (err: any) {
+    setEditSnapModal((prev: any) => ({ ...prev, saving: false, error: err.message }));
+  }
+}
 
 function getBranchHeadContact(sol: string) {
   const contact = (data?.contacts || []).find((x: any) => x.sol === sol);
@@ -381,7 +421,10 @@ async function openReviewImageModal(targetSol: string, customReviewText?: string
     if (existingRev) {
       revObj = {
         ...existingRev,
-        by: (existingRev.by && String(existingRev.by).trim()) || currentUserName,
+        by: (existingRev.reviewerName && String(existingRev.reviewerName).trim())
+          || (existingRev.by && String(existingRev.by).trim())
+          || currentUserName,
+        role: existingRev.reviewerRole || existingRev.role || data.user.role,
       };
     }
   }
@@ -596,6 +639,16 @@ async function load(isSilent=false){
     if(j.user.role==='branch'){
       setSol(j.user.sol);
       setValues((prev:any)=>Object.keys(prev).length?prev:(j.subs.find((x:any)=>x.sol===j.user.sol)?.values||{}));
+    }
+    if(j.pub){
+      setMeta((prev:any)=>({
+        ...prev,
+        cutoff:j.pub.cutoff||prev.cutoff,
+        baseline:j.pub.baseline||prev.baseline,
+        fundedDefinition:j.pub.fundedDefinition||prev.fundedDefinition,
+        deadline:j.pub.deadline||prev.deadline,
+        reason:prev.reason||'',
+      }));
     }
     if(!routed.current){
       setTab(j.user.role==='branch'?'Branch report':j.user.role==='reviewer'?'Review desk':(j.user.role==='srm'||j.user.role==='gm')?'Overview':'Publish data');
@@ -969,7 +1022,7 @@ if (!tickerItems.length && data?.branches?.length) {
 }
 const nav=isAdmin?[['Publish data',Upload],['Overview',LayoutDashboard],['Login activity',UserCheck],['Campaigns',Flag],['Branch directory',Users],['Message queue',Send],['Review desk',MessageSquare]]:isGm?[['Overview',LayoutDashboard],['Login activity',UserCheck],['Review desk',MessageSquare],['Campaigns',Flag]]:data?.user.role==='reviewer'?[['Review desk',MessageSquare],['Login activity',UserCheck],['Overview',LayoutDashboard]]:[['Branch report',ClipboardList]];
 const total=(key:string)=>(data?.pub?.rows||[]).reduce((a:number,b:any)=>a+Number(b[key]||0),0);
-async function upload(file:File){try{const text=await file.text();const r=parseCSV(text);validateSnapshot(r,data.branches,data.campaigns,date);setRows(r);setImportName(file.name);setError('');}catch(e:any){setRows([]);setError(e.message);}}
+async function upload(file:File){try{const text=await file.text();const r=parseCSV(text);validateSnapshot(r,data.branches,data.campaigns,date,Boolean(data?.pub));setRows(r);setImportName(file.name);setError('');}catch(e:any){setRows([]);setError(e.message);}}
 function template(){let fields=['sol',...baseFields];download('IOB_upload_'+date+'.csv',fields.join(',')+'\n'+data.branches.map((b:any)=>[b.sol,...fields.slice(1).map(()=> '')].join(',')).join('\n'));}
 const [campUploadCampId, setCampUploadCampId] = useState('');
 const [campRows, setCampRows] = useState<any[]>([]);
@@ -1223,9 +1276,9 @@ return <div className={"shell role-"+data.user.role}><aside><div className="bran
     </div>
   </>;
 })()}
-<div className="panel"><div className="paneltop"><div><h2>{tab==='Review desk'?'Review queue':'Branch performance'}</h2><p>{data.pub?'Published v'+data.pub.version+' · Amounts in ₹ · '+data.pub.baseline:'Confirmed positions will appear after publication.'}</p></div><div style={{display:'flex',gap:8,alignItems:'center'}}>{(isAdmin||isGm||data.user.role==='reviewer')&&pendingSubBranches.length>0&&<button type="button" className="secondary" onClick={()=>{setReminderTab('pending');setReminderSeqIdx(0);setShowReminderModal(true);}} style={{display:'inline-flex',alignItems:'center',gap:6,color:'#15803d',borderColor:'#86efac',background:'#f0fdf4',fontWeight:700}}><MessageSquare size={14}/> Remind Pending ({pendingSubBranches.length})</button>}<button className="secondary" onClick={()=>download('IOB_summary_'+date+'.csv','SOL,Branch,Status,SB opened today,CD opened today,SB growth today ₹,CD growth today ₹,TD growth today ₹,Retail sanctions today accts,Retail sanctions today ₹,Agri sanctions today accts,Agri sanctions today ₹,MSME sanctions today accts,MSME sanctions today ₹,Retail LPC forwarded accts,Retail LPC forwarded ₹,Agri LPC forwarded accts,Agri LPC forwarded ₹,MSME LPC forwarded accts,MSME LPC forwarded ₹,SMA0 elim accts,SMA0 elim ₹,SMA1 elim accts,SMA1 elim ₹,SMA2 elim accts,SMA2 elim ₹,Total SMA elim ₹\n'+data.branches.map((b:any)=>{const s=data.subs.find((x:any)=>x.sol===b.sol);const totalSmaElim=Number(s?.values?.sma0_amount||0)+Number(s?.values?.sma1_amount||0)+Number(s?.values?.sma2_amount||0);return [b.sol,b.name,status(b),s?.values.sb_opened??'',s?.values.cd_opened??'',s?.values.sb_growth_today??'',s?.values.cd_growth_today??'',s?.values.td_growth_today??'',s?.values.sanction_retail_count??'',s?.values.sanction_retail_amount??'',s?.values.sanction_agri_count??'',s?.values.sanction_agri_amount??'',s?.values.sanction_msme_count??'',s?.values.sanction_msme_amount??'',s?.values.lpc_retail_count??'',s?.values.lpc_retail_amount??'',s?.values.lpc_agri_count??'',s?.values.lpc_agri_amount??'',s?.values.lpc_msme_count??'',s?.values.lpc_msme_amount??'',s?.values.sma0_count??'',s?.values.sma0_amount??'',s?.values.sma1_count??'',s?.values.sma1_amount??'',s?.values.sma2_count??'',s?.values.sma2_amount??'',totalSmaElim||''].join(',')}).join('\n'))}><Download size={16}/>Export summary</button></div></div><div className="toolbar"><input placeholder="Search branch or SOL…" value={search} onChange={e=>setSearch(e.target.value)}/><select value={filter} onChange={e=>setFilter(e.target.value)}>{['All branches','Pending','Submitted','Reviewed','Clarification','SB Negative (MTD)','CD Negative (MTD)','SB Degrowth Today','CD Degrowth Today','TD Degrowth Today','LPC Forwarded Cases','Sanctions Today','NIL openings'].map(x=><option key={x}>{x}</option>)}</select></div><div className="tablewrap branchlist"><table><thead><tr><th>BRANCH</th><th>SB POSITION & OPENINGS</th><th>CD POSITION & OPENINGS</th><th>TD TODAY</th><th>LPC FORWARDED TODAY</th><th>BRANCH SANCTIONS</th><th>SMA ELIM</th><th>REPORT STATUS</th><th/></tr></thead><tbody>{data.branches.filter((b:any)=>{const s=data.subs.find((x:any)=>x.sol===b.sol),r=data.pub?.rows.find((x:any)=>x.sol===b.sol);const hasLpc=s&&(Number(s.values.lpc_retail_count||0)>0||Number(s.values.lpc_agri_count||0)>0||Number(s.values.lpc_msme_count||0)>0);const hasSanction=s&&(Number(s.values.sanction_retail_count||0)>0||Number(s.values.sanction_agri_count||0)>0||Number(s.values.sanction_msme_count||0)>0);return (b.name+' '+b.sol).toLowerCase().includes(search.toLowerCase())&&(filter==='All branches'||filter===status(b)||(filter==='SB Negative (MTD)'&&r?.sb_growth<0)||(filter==='CD Negative (MTD)'&&r?.cd_growth<0)||(filter==='SB Degrowth Today'&&s&&Number(s.values.sb_growth_today||0)<0)||(filter==='CD Degrowth Today'&&s&&Number(s.values.cd_growth_today||0)<0)||(filter==='TD Degrowth Today'&&s&&Number(s.values.td_growth_today||0)<0)||(filter==='LPC Forwarded Cases'&&hasLpc)||(filter==='Sanctions Today'&&hasSanction)||(filter==='NIL openings'&&s&&s.values.sb_opened===0&&s.values.cd_opened===0));}).map((b:any)=>{const r=data.pub?.rows.find((x:any)=>x.sol===b.sol),s=data.subs.find((x:any)=>x.sol===b.sol);const totalSma=Number(s?.values?.sma0_amount||0)+Number(s?.values?.sma1_amount||0)+Number(s?.values?.sma2_amount||0);const totalLpc=Number(s?.values?.lpc_retail_amount||0)+Number(s?.values?.lpc_agri_amount||0)+Number(s?.values?.lpc_msme_amount||0);const totalLpcCnt=Number(s?.values?.lpc_retail_count||0)+Number(s?.values?.lpc_agri_count||0)+Number(s?.values?.lpc_msme_count||0);const totalSanction=Number(s?.values?.sanction_retail_amount||0)+Number(s?.values?.sanction_agri_amount||0)+Number(s?.values?.sanction_msme_amount||0);return <tr key={b.sol}><td><b>{b.name}</b><small>SOL {b.sol}</small></td><td data-label="SB Position & Openings">{r?<div><span className={r.sb_growth<0?'negative':r.sb_growth>0?'positive':'muted'}>MTD: ₹{fmt(r.sb_growth)}</span>{s?.values?.sb_growth_today!=null&&<small style={{color:Number(s.values.sb_growth_today)<0?'#dc2626':'#059669',fontWeight:600}}>Today: ₹{fmt(s.values.sb_growth_today)} {Number(s.values.sb_growth_today)<0?'▼':'▲'}</small>}{s&&<div style={{marginTop:3}}><span style={{display:'inline-block',background:'#e0f2fe',color:'#0369a1',padding:'1px 6px',borderRadius:4,fontSize:11,fontWeight:700}}>Opened: +{s.values.sb_opened} ({s.values.sb_funded} funded)</span></div>}</div>:'—'}</td><td data-label="CD Position & Openings">{r?<div><span className={r.cd_growth<0?'negative':r.cd_growth>0?'positive':'muted'}>MTD: ₹{fmt(r.cd_growth)}</span>{s?.values?.cd_growth_today!=null&&<small style={{color:Number(s.values.cd_growth_today)<0?'#dc2626':'#059669',fontWeight:600}}>Today: ₹{fmt(s.values.cd_growth_today)} {Number(s.values.cd_growth_today)<0?'▼':'▲'}</small>}{s&&<div style={{marginTop:3}}><span style={{display:'inline-block',background:'#f1f5f9',color:'#334155',padding:'1px 6px',borderRadius:4,fontSize:11,fontWeight:700}}>Opened: +{s.values.cd_opened} ({s.values.cd_funded} funded)</span></div>}</div>:'—'}</td><td data-label="TD Today">{s?.values?.td_growth_today!=null?<div><b style={{color:Number(s.values.td_growth_today)<0?'#dc2626':Number(s.values.td_growth_today)>0?'#059669':'#64748b'}}>₹{fmt(s.values.td_growth_today)}</b><small style={{color:Number(s.values.td_growth_today)<0?'#dc2626':'#059669'}}>{Number(s.values.td_growth_today)<0?'▼ Degrowth':Number(s.values.td_growth_today)>0?'▲ Growth':'NIL'}</small></div>:'—'}</td><td data-label="LPC Forwarded Today">{s&&totalLpcCnt>0?<div><b style={{color:'#0284c7'}}>₹{fmt(totalLpc)}</b><small>{totalLpcCnt} cases (R:{s.values.lpc_retail_count||0} · A:{s.values.lpc_agri_count||0} · M:{s.values.lpc_msme_count||0})</small></div>:'—'}</td><td data-label="Branch Sanctions">{s&&totalSanction>0?<div><span>₹{fmt(totalSanction)}</span><small>R: ₹{fmt(s.values.sanction_retail_amount)} · A: ₹{fmt(s.values.sanction_agri_amount)} · M: ₹{fmt(s.values.sanction_msme_amount)}</small></div>:'—'}</td><td data-label="SMA Elim">{s&&totalSma>0?<div><span style={{color:'#059669',fontWeight:600}}>₹{fmt(totalSma)}</span><small>{Number(s.values.sma0_count||0)+Number(s.values.sma1_count||0)+Number(s.values.sma2_count||0)} accts</small></div>:'—'}</td><td data-label="Report"><span className={'badge '+status(b).toLowerCase()}>{status(b)}</span>{status(b)==='Pending'&&(isAdmin||isGm||data.user.role==='reviewer')&&<a href={getBranchHeadContact(b.sol).hasPhone?`https://wa.me/${getBranchHeadContact(b.sol).phone}?text=${encodeURIComponent(getIndividualReminderMsg(b,'pending'))}`:`https://wa.me/?text=${encodeURIComponent(getIndividualReminderMsg(b,'pending'))}`} target="_blank" rel="noopener noreferrer" title={getBranchHeadContact(b.sol).hasPhone?`WhatsApp reminder to ${getBranchHeadContact(b.sol).name} (${getBranchHeadContact(b.sol).displayPhone})`:'Share reminder via WhatsApp'} style={{display:'inline-flex',alignItems:'center',gap:4,padding:'2px 7px',borderRadius:4,fontSize:11,fontWeight:700,color:'#15803d',background:'#f0fdf4',border:'1px solid #86efac',textDecoration:'none',marginLeft:6}} onClick={()=>setSentReminderSols((prev:string[])=>prev.includes(b.sol)?prev:[...prev,b.sol])}><MessageSquare size={11}/> Remind</a>}</td><td><button className="textbutton" onClick={()=>openBranch(b.sol,tab==='Review desk'?'Review entry':'Branch report')}>{tab==='Review desk'?'Review':'Open'} <ChevronRight size={15}/></button></td></tr>})}</tbody></table></div></div><div className="footnote">Confirmed figures and branch-reported additions are kept separate. A missing report is never counted as NIL.</div></>}
+<div className="panel"><div className="paneltop"><div><h2>{tab==='Review desk'?'Review queue':'Branch performance'}</h2><p>{data.pub?'Published v'+data.pub.version+' · Amounts in ₹ · '+data.pub.baseline:'Confirmed positions will appear after publication.'}</p></div><div style={{display:'flex',gap:8,alignItems:'center'}}>{(isAdmin||isGm||data.user.role==='reviewer')&&pendingSubBranches.length>0&&<button type="button" className="secondary" onClick={()=>{setReminderTab('pending');setReminderSeqIdx(0);setShowReminderModal(true);}} style={{display:'inline-flex',alignItems:'center',gap:6,color:'#15803d',borderColor:'#86efac',background:'#f0fdf4',fontWeight:700}}><MessageSquare size={14}/> Remind Pending ({pendingSubBranches.length})</button>}<button className="secondary" onClick={()=>download('IOB_summary_'+date+'.csv','SOL,Branch,Status,SB opened today,CD opened today,SB growth today ₹,CD growth today ₹,TD growth today ₹,Retail sanctions today accts,Retail sanctions today ₹,Agri sanctions today accts,Agri sanctions today ₹,MSME sanctions today accts,MSME sanctions today ₹,Retail LPC forwarded accts,Retail LPC forwarded ₹,Agri LPC forwarded accts,Agri LPC forwarded ₹,MSME LPC forwarded accts,MSME LPC forwarded ₹,SMA0 elim accts,SMA0 elim ₹,SMA1 elim accts,SMA1 elim ₹,SMA2 elim accts,SMA2 elim ₹,Total SMA elim ₹\n'+data.branches.map((b:any)=>{const s=data.subs.find((x:any)=>x.sol===b.sol);const totalSmaElim=Number(s?.values?.sma0_amount||0)+Number(s?.values?.sma1_amount||0)+Number(s?.values?.sma2_amount||0);return [b.sol,b.name,status(b),s?.values.sb_opened??'',s?.values.cd_opened??'',s?.values.sb_growth_today??'',s?.values.cd_growth_today??'',s?.values.td_growth_today??'',s?.values.sanction_retail_count??'',s?.values.sanction_retail_amount??'',s?.values.sanction_agri_count??'',s?.values.sanction_agri_amount??'',s?.values.sanction_msme_count??'',s?.values.sanction_msme_amount??'',s?.values.lpc_retail_count??'',s?.values.lpc_retail_amount??'',s?.values.lpc_agri_count??'',s?.values.lpc_agri_amount??'',s?.values.lpc_msme_count??'',s?.values.lpc_msme_amount??'',s?.values.sma0_count??'',s?.values.sma0_amount??'',s?.values.sma1_count??'',s?.values.sma1_amount??'',s?.values.sma2_count??'',s?.values.sma2_amount??'',totalSmaElim||''].join(',')}).join('\n'))}><Download size={16}/>Export summary</button></div></div><div className="toolbar"><input placeholder="Search branch or SOL…" value={search} onChange={e=>setSearch(e.target.value)}/><select value={filter} onChange={e=>setFilter(e.target.value)}>{['All branches','Pending','Submitted','Reviewed','Clarification','SB Negative (MTD)','CD Negative (MTD)','SB Degrowth Today','CD Degrowth Today','TD Degrowth Today','LPC Forwarded Cases','Sanctions Today','NIL openings'].map(x=><option key={x}>{x}</option>)}</select></div><div className="tablewrap branchlist"><table><thead><tr><th>BRANCH</th><th>SB POSITION & OPENINGS</th><th>CD POSITION & OPENINGS</th><th>TD TODAY</th><th>LPC FORWARDED TODAY</th><th>BRANCH SANCTIONS</th><th>SMA ELIM</th><th>REPORT STATUS</th><th/></tr></thead><tbody>{data.branches.filter((b:any)=>{const s=data.subs.find((x:any)=>x.sol===b.sol),r=data.pub?.rows.find((x:any)=>x.sol===b.sol);const hasLpc=s&&(Number(s.values.lpc_retail_count||0)>0||Number(s.values.lpc_agri_count||0)>0||Number(s.values.lpc_msme_count||0)>0);const hasSanction=s&&(Number(s.values.sanction_retail_count||0)>0||Number(s.values.sanction_agri_count||0)>0||Number(s.values.sanction_msme_count||0)>0);return (b.name+' '+b.sol).toLowerCase().includes(search.toLowerCase())&&(filter==='All branches'||filter===status(b)||(filter==='SB Negative (MTD)'&&r?.sb_growth<0)||(filter==='CD Negative (MTD)'&&r?.cd_growth<0)||(filter==='SB Degrowth Today'&&s&&Number(s.values.sb_growth_today||0)<0)||(filter==='CD Degrowth Today'&&s&&Number(s.values.cd_growth_today||0)<0)||(filter==='TD Degrowth Today'&&s&&Number(s.values.td_growth_today||0)<0)||(filter==='LPC Forwarded Cases'&&hasLpc)||(filter==='Sanctions Today'&&hasSanction)||(filter==='NIL openings'&&s&&s.values.sb_opened===0&&s.values.cd_opened===0));}).map((b:any)=>{const r=data.pub?.rows.find((x:any)=>x.sol===b.sol),s=data.subs.find((x:any)=>x.sol===b.sol);const totalSma=Number(s?.values?.sma0_amount||0)+Number(s?.values?.sma1_amount||0)+Number(s?.values?.sma2_amount||0);const totalLpc=Number(s?.values?.lpc_retail_amount||0)+Number(s?.values?.lpc_agri_amount||0)+Number(s?.values?.lpc_msme_amount||0);const totalLpcCnt=Number(s?.values?.lpc_retail_count||0)+Number(s?.values?.lpc_agri_count||0)+Number(s?.values?.lpc_msme_count||0);const totalSanction=Number(s?.values?.sanction_retail_amount||0)+Number(s?.values?.sanction_agri_amount||0)+Number(s?.values?.sanction_msme_amount||0);return <tr key={b.sol}><td><div style={{display:'flex',alignItems:'flex-start',justifyContent:'space-between',gap:4}}><div><b>{b.name}</b><small>SOL {b.sol}</small></div>{isAdmin&&data?.pub&&<button type="button" className="secondary" onClick={()=>openEditSnap(b.sol)} title="Edit confirmed snapshot figures (SB/CD) for this branch" style={{padding:'2px 6px',fontSize:10,borderRadius:4,display:'inline-flex',alignItems:'center',gap:3,borderColor:'#cbd5e1',whiteSpace:'nowrap',marginTop:1}}><Edit size={10}/> Edit</button>}</div></td><td data-label="SB Position & Openings">{r?<div><span className={r.sb_growth<0?'negative':r.sb_growth>0?'positive':'muted'}>MTD: ₹{fmt(r.sb_growth)}</span>{s?.values?.sb_growth_today!=null&&<small style={{color:Number(s.values.sb_growth_today)<0?'#dc2626':'#059669',fontWeight:600}}>Today: ₹{fmt(s.values.sb_growth_today)} {Number(s.values.sb_growth_today)<0?'▼':'▲'}</small>}{s&&<div style={{marginTop:3}}><span style={{display:'inline-block',background:'#e0f2fe',color:'#0369a1',padding:'1px 6px',borderRadius:4,fontSize:11,fontWeight:700}}>Opened: +{s.values.sb_opened} ({s.values.sb_funded} funded)</span></div>}</div>:'—'}</td><td data-label="CD Position & Openings">{r?<div><span className={r.cd_growth<0?'negative':r.cd_growth>0?'positive':'muted'}>MTD: ₹{fmt(r.cd_growth)}</span>{s?.values?.cd_growth_today!=null&&<small style={{color:Number(s.values.cd_growth_today)<0?'#dc2626':'#059669',fontWeight:600}}>Today: ₹{fmt(s.values.cd_growth_today)} {Number(s.values.cd_growth_today)<0?'▼':'▲'}</small>}{s&&<div style={{marginTop:3}}><span style={{display:'inline-block',background:'#f1f5f9',color:'#334155',padding:'1px 6px',borderRadius:4,fontSize:11,fontWeight:700}}>Opened: +{s.values.cd_opened} ({s.values.cd_funded} funded)</span></div>}</div>:'—'}</td><td data-label="TD Today">{s?.values?.td_growth_today!=null?<div><b style={{color:Number(s.values.td_growth_today)<0?'#dc2626':Number(s.values.td_growth_today)>0?'#059669':'#64748b'}}>₹{fmt(s.values.td_growth_today)}</b><small style={{color:Number(s.values.td_growth_today)<0?'#dc2626':'#059669'}}>{Number(s.values.td_growth_today)<0?'▼ Degrowth':Number(s.values.td_growth_today)>0?'▲ Growth':'NIL'}</small></div>:'—'}</td><td data-label="LPC Forwarded Today">{s&&totalLpcCnt>0?<div><b style={{color:'#0284c7'}}>₹{fmt(totalLpc)}</b><small>{totalLpcCnt} cases (R:{s.values.lpc_retail_count||0} · A:{s.values.lpc_agri_count||0} · M:{s.values.lpc_msme_count||0})</small></div>:'—'}</td><td data-label="Branch Sanctions">{s&&totalSanction>0?<div><span>₹{fmt(totalSanction)}</span><small>R: ₹{fmt(s.values.sanction_retail_amount)} · A: ₹{fmt(s.values.sanction_agri_amount)} · M: ₹{fmt(s.values.sanction_msme_amount)}</small></div>:'—'}</td><td data-label="SMA Elim">{s&&totalSma>0?<div><span style={{color:'#059669',fontWeight:600}}>₹{fmt(totalSma)}</span><small>{Number(s.values.sma0_count||0)+Number(s.values.sma1_count||0)+Number(s.values.sma2_count||0)} accts</small></div>:'—'}</td><td data-label="Report"><span className={'badge '+status(b).toLowerCase()}>{status(b)}</span>{status(b)==='Pending'&&(isAdmin||isGm||data.user.role==='reviewer')&&<a href={getBranchHeadContact(b.sol).hasPhone?`https://wa.me/${getBranchHeadContact(b.sol).phone}?text=${encodeURIComponent(getIndividualReminderMsg(b,'pending'))}`:`https://wa.me/?text=${encodeURIComponent(getIndividualReminderMsg(b,'pending'))}`} target="_blank" rel="noopener noreferrer" title={getBranchHeadContact(b.sol).hasPhone?`WhatsApp reminder to ${getBranchHeadContact(b.sol).name} (${getBranchHeadContact(b.sol).displayPhone})`:'Share reminder via WhatsApp'} style={{display:'inline-flex',alignItems:'center',gap:4,padding:'2px 7px',borderRadius:4,fontSize:11,fontWeight:700,color:'#15803d',background:'#f0fdf4',border:'1px solid #86efac',textDecoration:'none',marginLeft:6}} onClick={()=>setSentReminderSols((prev:string[])=>prev.includes(b.sol)?prev:[...prev,b.sol])}><MessageSquare size={11}/> Remind</a>}</td><td><button className="textbutton" onClick={()=>openBranch(b.sol,tab==='Review desk'?'Review entry':'Branch report')}>{tab==='Review desk'?'Review':'Open'} <ChevronRight size={15}/></button></td></tr>})}</tbody></table></div></div><div className="footnote">Confirmed figures and branch-reported additions are kept separate. A missing report is never counted as NIL.</div></>}
 {(tab==='Branch report'||tab==='Review entry')&&<>{tab==='Review entry'&&<button className="backbutton secondary" onClick={()=>setTab('Review desk')}>← Back to review queue</button>}<div className="panel branchpicker">{data.user.role==='branch'?<div><h2>{branch?.name}</h2><small>SOL {sol} · Your branch</small></div>:<label>Branch<select value={sol} onChange={e=>openBranch(e.target.value,tab)}><option value="">Select a branch</option>{data.branches.map((b:any)=><option key={b.sol} value={b.sol}>{b.sol} · {b.name}</option>)}</select></label>}{sub&&<span className="badge submitted">Revision {sub.revision} · {new Date(sub.at).toLocaleString('en-IN',{timeZone:'Asia/Kolkata'})}</span>}</div>
-{snap&&<><div className="panel"><h2>{branch?.name} <span className="muted">· SOL {sol}</span></h2><p>{data.pub?`Confirmed through ${data.pub.cutoff} · Funded: ${data.pub.fundedDefinition}`:'Awaiting admin baseline publication · You can record and submit today’s performance below.'}</p><div className="tablewrap"><table><thead><tr><th>ACCOUNT POSITION</th><th>SB OPENED / FUNDED</th><th>CD OPENED / FUNDED</th></tr></thead><tbody>{['fy','mtd'].map(p=><tr key={p}><td>{p==='fy'?'FY through prior month-end':'Current month through yesterday'}</td>{['sb','cd'].map(t=><td key={t}>{fmt(snap[t+'_'+p+'_opened'])} / {fmt(snap[t+'_'+p+'_funded'])}</td>)}</tr>)}</tbody></table></div><div className="tablewrap" style={{marginTop:16}}><table><thead><tr><th>SANCTIONS POSITION</th><th>SANCTIONS UPTO LAST MONTH (ACCTS / ₹)</th><th>SANCTIONS IN CURRENT MONTH TILL YESTERDAY (ACCTS / ₹)</th></tr></thead><tbody>{sanctionSectors.map((s:any)=><tr key={s}><td><b>{sectorLabels[s]}</b></td><td>{fmt(snap['sanction_'+s+'_prior_count'])} accts · ₹{fmt(snap['sanction_'+s+'_prior_amount'])}</td><td>{fmt(snap['sanction_'+s+'_mtd_count'])} accts · ₹{fmt(snap['sanction_'+s+'_mtd_amount'])}</td></tr>)}</tbody></table></div><div className="growthline">{['sb','cd'].map(p=><div key={p} className={snap[p+'_growth']<0?'negative':'positive'}>{p.toUpperCase()} growth: ₹{fmt(snap[p+'_growth'])} <b>{snap[p+'_growth']<0?'Negative':snap[p+'_growth']>0?'Positive':'Zero growth'}</b></div>)}</div></div>
+{snap&&<><div className="panel"><h2>{branch?.name} <span className="muted">· SOL {sol}</span>{isAdmin&&data?.pub&&<button type="button" className="secondary" onClick={()=>openEditSnap(sol)} style={{marginLeft:12,padding:'4px 10px',fontSize:12,display:'inline-flex',alignItems:'center',gap:5}}><Edit size={12}/> Edit Confirmed Position</button>}</h2><p>{data.pub?`Confirmed through ${data.pub.cutoff} · Funded: ${data.pub.fundedDefinition}`:'Awaiting admin baseline publication · You can record and submit today’s performance below.'}</p><div className="tablewrap"><table><thead><tr><th>ACCOUNT POSITION</th><th>SB OPENED / FUNDED</th><th>CD OPENED / FUNDED</th></tr></thead><tbody>{['fy','mtd'].map(p=><tr key={p}><td>{p==='fy'?'FY through prior month-end':'Current month through yesterday'}</td>{['sb','cd'].map(t=><td key={t}>{fmt(snap[t+'_'+p+'_opened'])} / {fmt(snap[t+'_'+p+'_funded'])}</td>)}</tr>)}</tbody></table></div><div className="tablewrap" style={{marginTop:16}}><table><thead><tr><th>SANCTIONS POSITION</th><th>SANCTIONS UPTO LAST MONTH (ACCTS / ₹)</th><th>SANCTIONS IN CURRENT MONTH TILL YESTERDAY (ACCTS / ₹)</th></tr></thead><tbody>{sanctionSectors.map((s:any)=><tr key={s}><td><b>{sectorLabels[s]}</b></td><td>{fmt(snap['sanction_'+s+'_prior_count'])} accts · ₹{fmt(snap['sanction_'+s+'_prior_amount'])}</td><td>{fmt(snap['sanction_'+s+'_mtd_count'])} accts · ₹{fmt(snap['sanction_'+s+'_mtd_amount'])}</td></tr>)}</tbody></table></div><div className="growthline">{['sb','cd'].map(p=><div key={p} className={snap[p+'_growth']<0?'negative':'positive'}>{p.toUpperCase()} growth: ₹{fmt(snap[p+'_growth'])} <b>{snap[p+'_growth']<0?'Negative':snap[p+'_growth']>0?'Positive':'Zero growth'}</b></div>)}</div></div>
 {tab==='Branch report'&&data.user.role!=='reviewer'&&<><div className="panel"><div className="paneltop"><div><h2>01 · Today’s account openings</h2><p>Enter today’s additions only. Funded accounts must belong to today’s openings.</p></div><button className="secondary" onClick={()=>setValues((v:any)=>({...v,...Object.fromEntries(['sb_opened','sb_funded','cd_opened','cd_funded','sb_growth_today','cd_growth_today','td_growth_today','sma0_count','sma0_amount','sma1_count','sma1_amount','sma2_count','sma2_amount',...sanctionSectors.flatMap((s:any)=>['sanction_'+s+'_count','sanction_'+s+'_amount','lpc_'+s+'_count','lpc_'+s+'_amount']),...active.map((c:any)=>'camp_'+c.id)].map(k=>[k,0]))}))}>Set today’s additions to NIL</button></div><div className="grid4">{field('SB opened today','sb_opened')}{field('Of these, funded','sb_funded')}{field('CD opened today','cd_opened')}{field('Of these, funded','cd_funded')}</div><div className="miniinfo">Provisional MTD openings: SB {fmt(snap.sb_mtd_opened+Number(values.sb_opened||0))} · CD {fmt(snap.cd_mtd_opened+Number(values.cd_opened||0))}. Confirmed growth remains unchanged.</div>{(()=>{const bFund=(data?.fundingAccounts||[]).filter((a:any)=>a.sol===sol);const bDone=bFund.filter((a:any)=>a.funded);const bAmt=bDone.reduce((acc:number,a:any)=>acc+Number(a.funded_amount||0),0);return <div style={{marginTop:14,padding:'12px 16px',background:'#f0f9ff',border:'1px solid #bae6fd',borderRadius:8,display:'flex',justifyContent:'space-between',alignItems:'center',flexWrap:'wrap',gap:10}}><div><div style={{display:'flex',alignItems:'center',gap:6,color:'#0369a1',fontWeight:700,fontSize:13}}><CheckCircle2 size={16} color="#0284c7"/><span>Low Balance Accounts Funding (Live Auto-Sync)</span><span style={{fontSize:10,background:'#e0f2fe',color:'#0369a1',padding:'2px 8px',borderRadius:10,border:'1px solid #bae6fd',fontWeight:700}}>AUTO-FETCHED · NO MANUAL ENTRY</span></div><div style={{fontSize:12,color:'#334155',marginTop:4}}><b>{bDone.length}</b> of <b>{bFund.length}</b> low balance accounts funded &bull; Mobilized: <b style={{color:'#059669'}}>₹{fmt(bAmt)}</b></div></div><button type="button" className="secondary" onClick={()=>switchPortal('funding')} style={{fontSize:12,padding:'5px 12px',display:'inline-flex',alignItems:'center',gap:5,color:'#0284c7',borderColor:'#bae6fd'}}>Open Funding Portal <ExternalLink size={13}/></button></div>;})()}</div>
 <div className="panel"><div className="paneltop"><div><h2>01B · Deposit growth today (SB, CD, TD)</h2><p>Enter net deposit growth mobilized by your branch today in rupees (can be positive or negative).</p></div></div><div className="grid3">{growthField('SB Growth Today (₹)','sb_growth_today')}{growthField('CD Growth Today (₹)','cd_growth_today')}{growthField('TD (Term Deposit) Growth Today (₹)','td_growth_today')}</div></div>
 {['sb','cd'].filter(p=>snap[p+'_growth']<0).map(p=><div className="panel plan" key={p}><h2>{p.toUpperCase()} · Plan to become positive</h2><p>Confirmed deficit: ₹{fmt(-snap[p+'_growth'])}. Expected receipts are commitments, not confirmed growth.</p><label>Tentative positivity date<input type="date" min={date} value={values.plans?.[p]?.date||''} onChange={e=>set('plans',{...values.plans,[p]:{...values.plans?.[p],date:e.target.value,funds:values.plans?.[p]?.funds||[{}]}})}/></label>{(values.plans?.[p]?.funds||[{}]).map((f:any,i:number)=><div className="grid3" key={i}>{['reference','amount','date'].map(k=><label key={k}>{k==='reference'?'Account reference (masked)':k==='amount'?'Expected funds (₹)':'Receipt date'}<input type={k==='amount'?'number':k==='date'?'date':'text'} min={k==='date'?date:0} value={f[k]??''} onChange={e=>{let funds=[...(values.plans?.[p]?.funds||[{}])];funds[i]={...funds[i],[k]:e.target.value};set('plans',{...values.plans,[p]:{...values.plans?.[p],funds}});}}/></label>)}</div>)}<button className="textbutton" onClick={()=>set('plans',{...values.plans,[p]:{...values.plans?.[p],funds:[...(values.plans?.[p]?.funds||[{}]),{}]}})}><Plus size={15}/>Add expected receipt</button></div>)}
@@ -1234,8 +1287,57 @@ return <div className={"shell role-"+data.user.role}><aside><div className="bran
 <div className="panel"><div className="paneltop"><div><h2>03B · Loans forwarded to LPC today (Core Retail, Core Agri, Core MSME)</h2><p>Proposals forwarded to the Loan Processing Cell (LPC) today for sanction.</p></div></div>{sanctionSectors.map((s:any)=><div className="smarow" key={'lpc_'+s}><div><b>{sectorLabels[s].toUpperCase()}</b><small>Proposals forwarded to LPC today</small></div>{field('Proposals forwarded today','lpc_'+s+'_count')}{field('Proposal amount forwarded (₹)','lpc_'+s+'_amount')}</div>)}<div className="miniinfo">Total LPC proposals forwarded today: {sanctionSectors.reduce((acc:number,s:any)=>acc+Number(values['lpc_'+s+'_count']||0),0)} proposals · ₹{fmt(sanctionSectors.reduce((acc:number,s:any)=>acc+Number(values['lpc_'+s+'_amount']||0),0))}</div></div>
 <div className="panel"><h2>04 · Campaign additions</h2>{active.length?active.map((c:any)=><div className="campaignrow" key={c.id}><div><b>{c.title}</b><small>{c.start} — {c.end}</small><small>Prior months: {fmt(snap['camp_'+c.id+'_prior'])} · This month through yesterday: {fmt(snap['camp_'+c.id+'_mtd'])}</small></div>{field('Added today','camp_'+c.id)}</div>):<p>No campaigns are active for this reporting date.</p>}</div><div className="panel submitpanel"><label>Notes / explanation<textarea value={values.notes||''} onChange={e=>set('notes',e.target.value)} placeholder="Explain exceptions or relevant changes…"/></label><button disabled={busy} onClick={handleBranchSubmit}>Submit daily performance <CheckCircle2 size={17}/></button></div></>}
 {sub&&<div className="panel"><div className="paneltop"><div><h2>Submitted performance</h2></div><button type="button" className="secondary" onClick={()=>openReviewImageModal(sol, '', 'submitted')} style={{display:'inline-flex',alignItems:'center',gap:6,fontSize:12,fontWeight:700,color:'#0284c7',borderColor:'#bae6fd',background:'#f0f9ff'}}><Sparkles size={13}/> View / Share Performance Scorecard Image</button></div><div className="grid4">{['sb_opened','sb_funded','cd_opened','cd_funded'].map(k=><div key={k}><small>{k.replace('_',' ').toUpperCase()}</small><h2>{fmt(sub.values[k])}</h2></div>)}</div><div style={{marginTop:12,padding:'10px 14px',background:'#f8fafc',borderRadius:8,border:'1px solid #e2e8f0'}}><div style={{fontSize:11,fontWeight:700,color:'#475569',textTransform:'uppercase',letterSpacing:'0.5px'}}>Deposit Growth Today</div><div className="grid3" style={{marginTop:6}}><div><small>SB Growth Today</small><b style={{display:'block',fontSize:15,color:Number(sub.values.sb_growth_today||0)<0?'#dc2626':'#059669'}}>₹{fmt(sub.values.sb_growth_today||0)}</b></div><div><small>CD Growth Today</small><b style={{display:'block',fontSize:15,color:Number(sub.values.cd_growth_today||0)<0?'#dc2626':'#059669'}}>₹{fmt(sub.values.cd_growth_today||0)}</b></div><div><small>TD Growth Today</small><b style={{display:'block',fontSize:15,color:Number(sub.values.td_growth_today||0)<0?'#dc2626':'#059669'}}>₹{fmt(sub.values.td_growth_today||0)}</b></div></div></div><p>{sub.values.notes||'No additional notes.'}</p>{Object.entries(sub.values.plans||{}).map(([p,plan]:any)=><div key={p}><h3>{p.toUpperCase()} positivity commitment · {plan.date}</h3>{plan.funds.map((f:any,i:number)=><p key={i}>{f.reference} · ₹{fmt(f.amount)} · {f.date}</p>)}</div>)}<div className="grid3">{['sma0','sma1','sma2'].map(p=><p key={p}>{p.toUpperCase()}: {sub.values[p+'_count']} eliminated · ₹{fmt(sub.values[p+'_amount'])}</p>)}</div><div className="grid3">{sanctionSectors.map((s:any)=><p key={s}><b>{sectorLabels[s]} Sanctions today</b>: {fmt(sub.values['sanction_'+s+'_count'])} accts · ₹{fmt(sub.values['sanction_'+s+'_amount'])}</p>)}</div><div className="grid3" style={{marginTop:8}}>{sanctionSectors.map((s:any)=><p key={'lpc_'+s} style={{color:'#0284c7'}}><b>{sectorLabels[s]} LPC Forwarded</b>: {fmt(sub.values['lpc_'+s+'_count']||0)} accts · ₹{fmt(sub.values['lpc_'+s+'_amount']||0)}</p>)}</div>{(()=>{const bFund=(data?.fundingAccounts||[]).filter((a:any)=>a.sol===sol);const bDone=bFund.filter((a:any)=>a.funded);const bAmt=bDone.reduce((acc:number,a:any)=>acc+Number(a.funded_amount||0),0);return <div style={{marginTop:10,fontSize:12,color:'#0369a1',background:'#f0f9ff',padding:'8px 12px',borderRadius:6,border:'1px solid #bae6fd'}}><b>Low Balance Funding (Live Sync)</b>: {bDone.length} of {bFund.length} accounts funded (₹{fmt(bAmt)} mobilized)</div>;})()}{active.map((c:any)=><p key={c.id}>{c.title}: {sub.values['camp_'+c.id]} added today</p>)}</div>}
-{sub&&canReview&&(()=>{const currentUserBy=(data.user.name&&String(data.user.name).trim())||(data.user.email&&String(data.user.email).trim()?data.user.email.split('@')[0].toUpperCase():'')||(data.user.phone?'RO Officer ('+data.user.phone.slice(-4)+')':'')||(isGm?'General Manager (GM)':'Regional Reviewer');return <div className="panel"><h2>{isGm?'General Manager (GM) Executive Direction':'Reply to this entry'}</h2><div className="mention"><Users size={16}/>Branch head selected automatically · {branch?.name} ({sol})</div><label>{isGm?'GM remarks / instructions':'Reviewer remarks'}<textarea value={reply} onChange={e=>setReply(e.target.value)} placeholder={isGm?'Provide executive direction or instructions to the branch head…':'Write your feedback or request a clarification…'}/></label><label>Review outcome<select value={reviewStatus} onChange={e=>setReviewStatus(e.target.value)}>{isGm&&<option value="gm_direction">★ GM Direction / Instruction</option>}<option value="reviewed">Reviewed</option><option value="clarification">Clarification required</option></select></label><p className="muted">The review is saved immediately. Group delivery waits for a configured connection and a verified branch-head mapping.</p><div style={{display:'flex',gap:10,flexWrap:'wrap',alignItems:'center'}}><button disabled={busy} onClick={async()=>{const replyTxt=reply;const revStat=reviewStatus;if(await act({action:'review',sol,text:reply,status:reviewStatus,revision:sub.revision},isGm&&reviewStatus==='gm_direction'?'GM direction saved and queued for group delivery.':'Review saved. The group reply is queued; the administrator can check delivery status.')){setReply('');openReviewImageModal(sol,replyTxt,revStat,currentUserBy,data.user.role,new Date().toISOString());}}}><Send size={16}/>{isGm&&reviewStatus==='gm_direction'?'Issue GM Direction':'Save review & queue group reply'}</button><button type="button" className="secondary" onClick={()=>openReviewImageModal(sol,reply,reviewStatus,currentUserBy,data.user.role,new Date().toISOString())} style={{display:'inline-flex',alignItems:'center',gap:6,color:'#15803d',borderColor:'#86efac',background:'#f0fdf4',fontWeight:700,padding:'10px 16px',borderRadius:8}}><MessageSquare size={16}/> Post Review to WhatsApp Group (with Image)</button></div></div>;})()}
-<div className="panel"><h2>Review history</h2>{data.reviews.filter((r:any)=>r.sol===sol).map((r:any)=><div className={"review "+(r.role==='srm'||r.role==='gm'||r.status==='srm_direction'||r.status==='gm_direction'?'srm-review-card':'')} key={r.id}><div className="paneltop"><b>{(r.role==='srm'||r.role==='gm'||r.status==='srm_direction'||r.status==='gm_direction')?'★ General Manager (GM)':((r.reviewerName && String(r.reviewerName).trim()) || (r.by && String(r.by).trim()) || 'Regional Reviewer')}</b><div style={{display:'flex',alignItems:'center',gap:8}}><span className={'badge '+((r.status==='srm_direction'||r.status==='gm_direction')?'srm-badge':r.status)}>{(r.status==='srm_direction'||r.status==='gm_direction')?'GM Direction':r.status}</span><button type="button" className="secondary" onClick={()=>openReviewImageModal(sol,r.text,r.status,r.reviewerName||r.by,r.role,r.at)} style={{display:'inline-flex',alignItems:'center',gap:5,padding:'3px 8px',fontSize:11,fontWeight:700,color:'#15803d',borderColor:'#86efac',background:'#f0fdf4'}} title="Post this review to WhatsApp Group with Performance Scorecard Image"><MessageSquare size={12}/> Post to WhatsApp Group (with Image)</button></div></div><small>{(r.role==='srm'||r.role==='gm')?((r.reviewerName||r.by)+' · '):''}Report revision {r.revision} · {r.at}</small><p>{r.text}</p></div>)}{!data.reviews.some((r:any)=>r.sol===sol)&&<p>No reviews yet.</p>}</div></>}</>}
+{sub&&canReview&&(()=>{
+  const defaultReviewerName = (data.user.name&&String(data.user.name).trim())
+    || (data.user.email&&String(data.user.email).trim()?data.user.email.split('@')[0].toUpperCase():'')
+    || (data.user.phone?'RO Officer ('+data.user.phone.slice(-4)+')':'')
+    || (isGm?'General Manager (GM)':'Regional Reviewer');
+  const defaultRole = isGm ? 'General Manager (GM)' : data.user.role === 'admin' ? 'Regional Administrator' : 'Regional Reviewer';
+  const effectiveName = reviewerNameInput.trim() || defaultReviewerName;
+  const effectiveRole = reviewerRoleInput.trim() || defaultRole;
+
+  return <div className="panel">
+    <h2>{isGm?'General Manager (GM) Executive Direction':'Reply to this entry'}</h2>
+    <div className="mention"><Users size={16}/>Branch head selected automatically · {branch?.name} ({sol})</div>
+    <div style={{display:'grid',gridTemplateColumns:'repeat(auto-fit, minmax(220px, 1fr))',gap:10,marginBottom:10}}>
+      <label>
+        Reviewer name (Officer name)
+        <input
+          type="text"
+          value={reviewerNameInput}
+          placeholder={defaultReviewerName}
+          onChange={e=>setReviewerNameInput(e.target.value)}
+        />
+      </label>
+      <label>
+        Designation / Role
+        <input
+          type="text"
+          value={reviewerRoleInput}
+          placeholder={defaultRole}
+          onChange={e=>setReviewerRoleInput(e.target.value)}
+        />
+      </label>
+    </div>
+    <label>{isGm?'GM remarks / instructions':'Reviewer remarks'}<textarea value={reply} onChange={e=>setReply(e.target.value)} placeholder={isGm?'Provide executive direction or instructions to the branch head…':'Write your feedback or request a clarification…'}/></label>
+    <label>Review outcome<select value={reviewStatus} onChange={e=>setReviewStatus(e.target.value)}>{isGm&&<option value="gm_direction">★ GM Direction / Instruction</option>}<option value="reviewed">Reviewed</option><option value="clarification">Clarification required</option></select></label>
+    <p className="muted">The review is saved immediately. Group delivery waits for a configured connection and a verified branch-head mapping.</p>
+    <div style={{display:'flex',gap:10,flexWrap:'wrap',alignItems:'center'}}>
+      <button disabled={busy} onClick={async()=>{
+        const replyTxt=reply;
+        const revStat=reviewStatus;
+        if(await act({action:'review',sol,text:reply,reviewerName:effectiveName,reviewerRole:effectiveRole,status:reviewStatus,revision:sub.revision},isGm&&reviewStatus==='gm_direction'?'GM direction saved and queued for group delivery.':'Review saved. The group reply is queued; the administrator can check delivery status.')){
+          setReply('');
+          openReviewImageModal(sol,replyTxt,revStat,effectiveName,effectiveRole,new Date().toISOString());
+        }
+      }}><Send size={16}/>{isGm&&reviewStatus==='gm_direction'?'Issue GM Direction':'Save review & queue group reply'}</button>
+      <button type="button" className="secondary" onClick={()=>openReviewImageModal(sol,reply,reviewStatus,effectiveName,effectiveRole,new Date().toISOString())} style={{display:'inline-flex',alignItems:'center',gap:6,color:'#15803d',borderColor:'#86efac',background:'#f0fdf4',fontWeight:700,padding:'10px 16px',borderRadius:8}}>
+        <MessageSquare size={16}/> Post Review to WhatsApp Group (with Image)
+      </button>
+    </div>
+  </div>;
+})()}
+<div className="panel"><h2>Review history</h2>{data.reviews.filter((r:any)=>r.sol===sol).map((r:any)=><div className={"review "+(r.role==='srm'||r.role==='gm'||r.status==='srm_direction'||r.status==='gm_direction'?'srm-review-card':'')} key={r.id}><div className="paneltop"><b>{(r.role==='srm'||r.role==='gm'||r.status==='srm_direction'||r.status==='gm_direction')?'★ General Manager (GM)':formatReviewerAttribution(r.reviewerName || r.by, r.reviewerRole || r.role)}</b><div style={{display:'flex',alignItems:'center',gap:8}}><span className={'badge '+((r.status==='srm_direction'||r.status==='gm_direction')?'srm-badge':r.status)}>{(r.status==='srm_direction'||r.status==='gm_direction')?'GM Direction':r.status}</span><button type="button" className="secondary" onClick={()=>openReviewImageModal(sol,r.text,r.status,r.reviewerName||r.by,r.role,r.at)} style={{display:'inline-flex',alignItems:'center',gap:5,padding:'3px 8px',fontSize:11,fontWeight:700,color:'#15803d',borderColor:'#86efac',background:'#f0fdf4'}} title="Post this review to WhatsApp Group with Performance Scorecard Image"><MessageSquare size={12}/> Post to WhatsApp Group (with Image)</button></div></div><small>{(r.role==='srm'||r.role==='gm')?((r.reviewerName||r.by)+' · '):''}Report revision {r.revision} · {r.at}</small><p>{r.text}</p></div>)}{!data.reviews.some((r:any)=>r.sol===sol)&&<p>No reviews yet.</p>}</div></>}</>}
 {tab==='Publish data'&&isAdmin&&<><div className="steps"><span className="on">1 · Download template</span><ChevronRight size={16}/><span>2 · Upload & validate</span><ChevronRight size={16}/><span>3 · Publish & request reports</span></div>
 {data.pub&&<div style={{marginTop:12,marginBottom:16,padding:'14px 18px',background:'#f0fdf4',border:'1.5px solid #86efac',borderRadius:10,display:'flex',justifyContent:'space-between',alignItems:'center',flexWrap:'wrap',gap:12}}>
   <div>
@@ -2973,6 +3075,134 @@ return <div className={"shell role-"+data.user.role}><aside><div className="bran
               Cancel &amp; Edit Fields
             </button>
           </div>
+        </div>
+      </div>
+    </div>
+  </div>
+)}
+
+{editSnapModal && (
+  <div
+    style={{
+      position: 'fixed',
+      top: 0,
+      left: 0,
+      right: 0,
+      bottom: 0,
+      background: 'rgba(15, 23, 42, 0.65)',
+      backdropFilter: 'blur(3px)',
+      display: 'flex',
+      alignItems: 'center',
+      justifyContent: 'center',
+      zIndex: 10000,
+      padding: 16,
+    }}
+  >
+    <div
+      style={{
+        background: '#ffffff',
+        borderRadius: 14,
+        maxWidth: 480,
+        width: '100%',
+        boxShadow: '0 20px 40px -15px rgba(0, 0, 0, 0.25)',
+        overflow: 'hidden',
+        border: '1px solid #cbd5e1',
+      }}
+    >
+      <div
+        style={{
+          background: 'linear-gradient(135deg, #0a3272, #0d4b9f)',
+          color: '#ffffff',
+          padding: '16px 20px',
+          display: 'flex',
+          justifyContent: 'space-between',
+          alignItems: 'center',
+        }}
+      >
+        <div>
+          <div style={{ fontSize: 16, fontWeight: 800 }}>Edit Confirmed Position</div>
+          <div style={{ fontSize: 12, color: '#bfdbfe', marginTop: 2 }}>
+            {editSnapModal.branch.name} (SOL {editSnapModal.sol}) &bull; {date}
+          </div>
+        </div>
+        <button
+          type="button"
+          onClick={() => setEditSnapModal(null)}
+          style={{
+            background: 'transparent',
+            border: 0,
+            color: '#ffffff',
+            fontSize: 22,
+            lineHeight: 1,
+            cursor: 'pointer',
+            padding: 4,
+          }}
+        >
+          &times;
+        </button>
+      </div>
+
+      <div style={{ padding: '20px 22px' }}>
+        {editSnapModal.error && (
+          <div className="alert negative" style={{ marginBottom: 16 }}>{editSnapModal.error}</div>
+        )}
+
+        <div style={{ display: 'flex', flexDirection: 'column', gap: 14 }}>
+          <label>
+            <span style={{ fontWeight: 700, fontSize: 13, color: '#1e293b' }}>SB Confirmed MTD Growth (₹)</span>
+            <input
+              type="text"
+              value={editSnapModal.sb_growth}
+              onChange={(e) => setEditSnapModal({ ...editSnapModal, sb_growth: e.target.value })}
+              placeholder="e.g. 104.07 or -50.25"
+              style={{ width: '100%', marginTop: 4, padding: '8px 12px', fontSize: 14, border: '1.5px solid #cbd5e1', borderRadius: 6 }}
+            />
+          </label>
+
+          <label>
+            <span style={{ fontWeight: 700, fontSize: 13, color: '#1e293b' }}>CD Confirmed MTD Growth (₹)</span>
+            <input
+              type="text"
+              value={editSnapModal.cd_growth}
+              onChange={(e) => setEditSnapModal({ ...editSnapModal, cd_growth: e.target.value })}
+              placeholder="e.g. -0.65 or -.65"
+              style={{ width: '100%', marginTop: 4, padding: '8px 12px', fontSize: 14, border: '1.5px solid #cbd5e1', borderRadius: 6 }}
+            />
+            <small style={{ color: '#64748b', marginTop: 4, display: 'block', fontSize: 11 }}>
+              Supports negative values like -0.65 or -.65 to show degrowth.
+            </small>
+          </label>
+
+          <label>
+            <span style={{ fontWeight: 700, fontSize: 13, color: '#1e293b' }}>Reason for Correction</span>
+            <input
+              type="text"
+              value={editSnapModal.reason}
+              onChange={(e) => setEditSnapModal({ ...editSnapModal, reason: e.target.value })}
+              placeholder="e.g. Corrected CD confirmed figure to -.65"
+              style={{ width: '100%', marginTop: 4, padding: '8px 12px', fontSize: 14, border: '1.5px solid #cbd5e1', borderRadius: 6 }}
+            />
+          </label>
+        </div>
+
+        <div style={{ marginTop: 22, display: 'flex', justifyContent: 'flex-end', gap: 10 }}>
+          <button
+            type="button"
+            className="secondary"
+            onClick={() => setEditSnapModal(null)}
+            disabled={editSnapModal.saving}
+            style={{ padding: '8px 16px', fontSize: 13 }}
+          >
+            Cancel
+          </button>
+          <button
+            type="button"
+            onClick={handleSaveEditSnap}
+            disabled={editSnapModal.saving}
+            style={{ padding: '8px 18px', fontSize: 13, fontWeight: 700 }}
+          >
+            {editSnapModal.saving ? 'Saving...' : 'Save & Update Position'}
+          </button>
         </div>
       </div>
     </div>

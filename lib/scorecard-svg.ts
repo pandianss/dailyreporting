@@ -1,20 +1,18 @@
 function formatReviewerAttribution(name?: string | null, role?: string | null): string {
-  const n = (name || '').trim();
-  const r = (role || '').trim();
+  let n = (name || '').trim().replace(/\(\s*\)/g, '').trim();
+  let r = (role || '').trim().replace(/\(\s*\)/g, '').trim();
 
-  if (!n && !r) return 'Regional Office';
-  if (!r) return n;
-  if (!n) return r;
+  if (!n && !r) return 'Regional Reviewer';
 
   const nLow = n.toLowerCase();
   const rLow = r.toLowerCase();
 
-  if (nLow === rLow || rLow.startsWith(nLow) || nLow.startsWith(rLow)) {
-    return r.length >= n.length ? r : n;
+  if (!n || nLow === 'reviewer' || nLow === 'regional office' || nLow === 'ro officer') {
+    return r || 'Regional Reviewer';
   }
 
-  if (nLow === 'regional office' || nLow === 'reviewer' || nLow === 'regional reviewer') {
-    return r;
+  if (!r || nLow === rLow || rLow.startsWith(nLow) || nLow.startsWith(rLow)) {
+    return n;
   }
 
   return `${n} (${r})`;

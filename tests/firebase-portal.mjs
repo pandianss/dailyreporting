@@ -600,5 +600,58 @@ assert.equal(bmLogin.role, 'branch');
 assert.ok(bmLogin.lastActive, 'lastActive timestamp must exist');
 count += 5;
 
+// 17. Updating branch snapshot directly or via partial CSV (e.g. SOL 2287 CD growth -.65)
+assert.equal(model.number('-.65', 'test', false, true), -0.65);
+assert.equal(model.number('–.65', 'test', false, true), -0.65);
+assert.equal(model.number('—.65', 'test', false, true), -0.65);
+assert.equal(model.number('−.65', 'test', false, true), -0.65);
+count += 4;
+
+const patchRes = await portalPost(
+  date,
+  {
+    action: 'update-branch-snapshot',
+    sol: '2287',
+    values: { cd_growth: '-.65' },
+    reason: 'Correction of Andipatti CD growth to -.65',
+  },
+  'owner'
+);
+assert.equal(patchRes.status, 200);
+const afterPatchView = await portalGet(date, 'owner');
+const patchedRow = afterPatchView.body.pub.rows.find((r) => r.sol === '2287');
+assert.equal(patchedRow.cd_growth, -0.65);
+count += 2;
+
+// 18. Reviewer name attribution and custom reviewer name in review action
+const portalCore = await import('./.portal-core.mjs');
+assert.equal(portalCore.formatReviewerAttribution('Reviewer', ''), 'Regional Reviewer');
+assert.equal(portalCore.formatReviewerAttribution('Reviewer ()', ''), 'Regional Reviewer');
+assert.equal(portalCore.formatReviewerAttribution('Regional Reviewer', ''), 'Regional Reviewer');
+assert.equal(portalCore.formatReviewerAttribution('S. Pandian', 'Regional Reviewer'), 'S. Pandian (Regional Reviewer)');
+assert.equal(portalCore.formatReviewerAttribution('S. Pandian', ''), 'S. Pandian');
+count += 5;
+
+const curSub = (await portalGet(date, 'owner')).body.subs.find((s) => s.sol === '0174');
+const customReviewRes = await portalPost(
+  date,
+  {
+    action: 'review',
+    sol: '0174',
+    revision: curSub.revision,
+    text: 'Great performance today, maintain deposit acceleration.',
+    reviewerName: 'S. Pandian',
+    reviewerRole: 'Regional Reviewer',
+  },
+  'owner'
+);
+assert.equal(customReviewRes.status, 200);
+const afterCustomRevView = await portalGet(date, 'owner');
+const rev0174 = afterCustomRevView.body.reviews.find((r) => r.sol === '0174' && r.text.includes('maintain deposit acceleration'));
+assert.ok(rev0174, 'Review with custom reviewer name should exist');
+assert.equal(rev0174.reviewerName, 'S. Pandian');
+assert.equal(rev0174.by, 'S. Pandian');
+count += 4;
+
 await unlink('tests/.portal-core.mjs');
 console.log(count + ' Firebase portal checks passed: __session cookie, Mobile+PIN auth, admin bootstrap, Firestore store contract, rate-limit lockout, reset, sanctions, SRM direction, and revocation.');
