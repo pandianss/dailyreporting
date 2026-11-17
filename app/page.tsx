@@ -9,6 +9,106 @@ const today=()=>new Date().toLocaleDateString('en-CA',{timeZone:'Asia/Kolkata'})
 const fmt=(n:any)=>n===undefined?'—':Number(n).toLocaleString('en-IN');
 function download(name:string,text:string){const a=document.createElement('a');a.href=URL.createObjectURL(new Blob([text],{type:'text/csv'}));a.download=name;a.click();URL.revokeObjectURL(a.href);}
 
+function parseCurrencyInput(raw: any, allowNegative: boolean = false): { value: number | null; raw: string; isLakhsCroresSuffix: boolean } {
+  if (raw === undefined || raw === null) return { value: null, raw: '', isLakhsCroresSuffix: false };
+  let str = String(raw).trim();
+  if (!str) return { value: null, raw: '', isLakhsCroresSuffix: false };
+
+  let isNeg = false;
+  if (str.startsWith('-') || str.endsWith('-') || /^\(.*\)$/.test(str)) {
+    isNeg = true;
+    str = str.replace(/[()\-]/g, '').trim();
+  }
+
+  str = str.replace(/[₹$,\s]/g, '');
+
+  let multiplier = 1;
+  let isSuffix = false;
+  const suffixMatch = /^(.*?)\s*(cr(?:ore)?s?|l(?:ac|akh)?s?|k)$/i.exec(str);
+  if (suffixMatch) {
+    const suf = suffixMatch[2].toLowerCase();
+    if (suf.startsWith('cr')) multiplier = 10000000;
+    else if (suf.startsWith('l')) multiplier = 100000;
+    else if (suf === 'k') multiplier = 1000;
+    str = suffixMatch[1].trim();
+    isSuffix = true;
+  }
+
+  const num = Number(str);
+  if (!Number.isFinite(num)) {
+    return { value: null, raw: String(raw), isLakhsCroresSuffix: false };
+  }
+
+  let val = Math.round(num * multiplier * 100) / 100;
+  if (isNeg && allowNegative) val = -val;
+  return { value: val, raw: String(raw), isLakhsCroresSuffix: isSuffix };
+}
+
+function getCurrencyMeta(val: any, allowNegative: boolean = false) {
+  if (val === undefined || val === null || val === '') return null;
+  const num = Number(val);
+  if (!Number.isFinite(num)) return null;
+  if (num === 0) {
+    return {
+      num: 0,
+      abs: 0,
+      isNeg: false,
+      formatted: '₹0',
+      text: 'NIL / Zero',
+      isSuspicious: false,
+      lakhsVal: 0,
+      lakhsFormatted: '₹0',
+    };
+  }
+
+  const abs = Math.abs(num);
+  const isNeg = num < 0;
+  const formatted = (isNeg ? '−₹' : '₹') + abs.toLocaleString('en-IN', { maximumFractionDigits: 2 });
+  const isSuspicious = abs > 0 && abs < 1000;
+  const lakhsVal = Math.round(num * 100000 * 100) / 100;
+  const lakhsFormatted = (isNeg ? '−₹' : '₹') + Math.abs(lakhsVal).toLocaleString('en-IN', { maximumFractionDigits: 2 });
+
+  let text = '';
+  if (abs >= 10000000) {
+    const cr = (abs / 10000000).toFixed(2).replace(/\.00$/, '');
+    text = `${cr} Cr${isNeg ? ' (Degrowth)' : ''}`;
+  } else if (abs >= 100000) {
+    const lk = (abs / 100000).toFixed(2).replace(/\.00$/, '');
+    text = `${lk} Lakhs${isNeg ? ' (Degrowth)' : ''}`;
+  } else if (abs >= 1000) {
+    const th = (abs / 1000).toFixed(2).replace(/\.00$/, '');
+    text = `${th} Thousand${isNeg ? ' (Degrowth)' : ''}`;
+  } else {
+    text = `${abs} Rupees${isNeg ? ' (Degrowth)' : ''}`;
+  }
+
+  return {
+    num,
+    abs,
+    isNeg,
+    formatted,
+    text,
+    isSuspicious,
+    lakhsVal,
+    lakhsFormatted,
+  };
+}
+
+const AMOUNT_FIELD_METAS: Record<string, string> = {
+  sb_growth_today: 'SB Growth Today',
+  cd_growth_today: 'CD Growth Today',
+  td_growth_today: 'TD (Term Deposit) Growth Today',
+  sanction_retail_amount: 'Core Retail Sanctions Amount',
+  sanction_agri_amount: 'Core Agri Sanctions Amount',
+  sanction_msme_amount: 'Core MSME Sanctions Amount',
+  lpc_retail_amount: 'Core Retail LPC Forwarded Amount',
+  lpc_agri_amount: 'Core Agri LPC Forwarded Amount',
+  lpc_msme_amount: 'Core MSME LPC Forwarded Amount',
+  sma0_amount: 'SMA-0 Eliminated Amount',
+  sma1_amount: 'SMA-1 Eliminated Amount',
+  sma2_amount: 'SMA-2 Eliminated Amount',
+};
+
 function getCampaignGroupMsg(camp: any, branchStats: any[], dateStr: string) {
   const totalToday = branchStats.reduce((acc, b) => acc + Number(b.todayVal || 0), 0);
   const totalMtd = branchStats.reduce((acc, b) => acc + Number(b.mtd || 0), 0);
@@ -113,6 +213,7 @@ const [sentReminderSols, setSentReminderSols] = useState<string[]>([]);
 const [copiedReminderGroup, setCopiedReminderGroup] = useState(false);
 const [copiedReminderSol, setCopiedReminderSol] = useState<string | null>(null);
 const [reminderSearch, setReminderSearch] = useState('');
+const [lakhsConfirmModal, setLakhsConfirmModal] = useState<any>(null);
 
 function getBranchHeadContact(sol: string) {
   const contact = (data?.contacts || []).find((x: any) => x.sol === sol);
@@ -403,8 +504,253 @@ const nextCampSeq = () => {
 const defaultSnap:any={sb_growth:0,cd_growth:0,sb_fy_opened:0,sb_fy_funded:0,cd_fy_opened:0,cd_fy_funded:0,sb_mtd_opened:0,sb_mtd_funded:0,cd_mtd_opened:0,cd_mtd_funded:0,sma0_yesterday_count:0,sma0_yesterday_amount:0,sma0_prior_count:0,sma0_prior_amount:0,sma1_yesterday_count:0,sma1_yesterday_amount:0,sma1_prior_count:0,sma1_prior_amount:0,sma2_yesterday_count:0,sma2_yesterday_amount:0,sma2_prior_count:0,sma2_prior_amount:0,sanction_retail_prior_count:0,sanction_retail_prior_amount:0,sanction_retail_mtd_count:0,sanction_retail_mtd_amount:0,sanction_agri_prior_count:0,sanction_agri_prior_amount:0,sanction_agri_mtd_count:0,sanction_agri_mtd_amount:0,sanction_msme_prior_count:0,sanction_msme_prior_amount:0,sanction_msme_mtd_count:0,sanction_msme_mtd_amount:0};
 const snap=data?.pub?.rows.find((b:any)=>b.sol===sol)||(sol?defaultSnap:null),sub=data?.subs.find((b:any)=>b.sol===sol),branch=data?.branches.find((b:any)=>b.sol===sol);
 const set=(k:string,v:any)=>setValues((o:any)=>({...o,[k]:v}));
-const field=(label:string,k:string)=> <label>{label}<input type="number" min="0" step={k.endsWith('amount')?'0.01':'1'} value={values[k]??''} onChange={e=>set(k,e.target.value)} placeholder="Enter 0 for NIL"/></label>;
-const growthField=(label:string,k:string)=> <label>{label}<input type="number" step="0.01" value={values[k]??''} onChange={e=>set(k,e.target.value)} placeholder="Enter ₹ (e.g. 50000 or -25000)"/></label>;
+
+const field = (label: string, k: string) => {
+  const isAmt = k.endsWith('amount');
+  if (!isAmt) {
+    return (
+      <label>
+        {label}
+        <input
+          type="number"
+          min="0"
+          step="1"
+          value={values[k] ?? ''}
+          onChange={e => set(k, e.target.value)}
+          placeholder="Enter 0 for NIL"
+        />
+      </label>
+    );
+  }
+
+  const raw = values[k] ?? '';
+  const meta = getCurrencyMeta(raw, false);
+
+  return (
+    <label style={{ display: 'flex', flexDirection: 'column', gap: 4 }}>
+      <span style={{ fontWeight: 600 }}>{label}</span>
+      <input
+        type="text"
+        inputMode="decimal"
+        value={raw}
+        onChange={e => {
+          const v = e.target.value;
+          const parsed = parseCurrencyInput(v, false);
+          if (parsed.isLakhsCroresSuffix && parsed.value !== null) {
+            set(k, parsed.value);
+          } else {
+            set(k, v);
+          }
+        }}
+        onBlur={() => {
+          const parsed = parseCurrencyInput(raw, false);
+          if (parsed.value !== null && raw !== '') {
+            set(k, parsed.value);
+          }
+        }}
+        placeholder="Enter ₹ (e.g. 1500000 or 15L)"
+      />
+      {meta && (
+        <div style={{ marginTop: 2, fontSize: 11, display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+          <span style={{ color: meta.num > 0 ? '#059669' : '#64748b', fontWeight: 700 }}>
+            {meta.formatted} · {meta.text}
+          </span>
+          <span style={{ fontSize: 10, color: '#94a3b8' }}>Rupees (Actuals)</span>
+        </div>
+      )}
+      {meta && meta.isSuspicious && (
+        <div style={{ marginTop: 6, padding: '7px 9px', background: '#fffbeb', border: '1px solid #fde68a', borderRadius: 6, fontSize: 11, color: '#92400e', lineHeight: 1.3 }}>
+          <div style={{ fontWeight: 700 }}>
+            ⚠️ Entered {meta.formatted} ({meta.text}).
+          </div>
+          <div style={{ marginTop: 2 }}>
+            Did you mean <b>{meta.abs} Lakhs</b>?
+          </div>
+          <button
+            type="button"
+            className="secondary"
+            onClick={() => set(k, meta.lakhsVal)}
+            style={{
+              marginTop: 5,
+              fontSize: 11,
+              fontWeight: 700,
+              padding: '3px 9px',
+              background: '#d97706',
+              color: '#ffffff',
+              border: 'none',
+              borderRadius: 4,
+              cursor: 'pointer',
+              display: 'inline-flex',
+              alignItems: 'center',
+              gap: 4,
+            }}
+          >
+            ⚡ Convert to {meta.lakhsFormatted} ({meta.abs} Lakhs)
+          </button>
+        </div>
+      )}
+    </label>
+  );
+};
+
+const growthField = (label: string, k: string) => {
+  const raw = values[k] ?? '';
+  const num = Number(raw);
+  const hasVal = raw !== '' && Number.isFinite(num);
+  const isDegrowth = (hasVal && num < 0) || String(raw).trim().startsWith('-');
+  const meta = getCurrencyMeta(raw, true);
+
+  return (
+    <label style={{ display: 'flex', flexDirection: 'column', gap: 4 }}>
+      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 2 }}>
+        <span style={{ fontWeight: 600 }}>{label}</span>
+        {/* Toggle Growth (+) vs Degrowth (-) */}
+        <div style={{ display: 'inline-flex', borderRadius: 6, border: '1px solid #cbd5e1', overflow: 'hidden', fontSize: 11, fontWeight: 700 }}>
+          <button
+            type="button"
+            onClick={() => {
+              if (isDegrowth) {
+                if (hasVal) set(k, Math.abs(num));
+                else set(k, '');
+              }
+            }}
+            style={{
+              padding: '3px 9px',
+              border: 'none',
+              background: !isDegrowth ? '#10b981' : '#f1f5f9',
+              color: !isDegrowth ? '#ffffff' : '#64748b',
+              cursor: 'pointer',
+              fontWeight: 700,
+            }}
+            title="Positive Growth"
+          >
+            + Growth
+          </button>
+          <button
+            type="button"
+            onClick={() => {
+              if (!isDegrowth) {
+                if (hasVal && num > 0) set(k, -Math.abs(num));
+                else if (raw === '' || !hasVal) set(k, '-');
+                else set(k, '-');
+              }
+            }}
+            style={{
+              padding: '3px 9px',
+              border: 'none',
+              background: isDegrowth ? '#ef4444' : '#f1f5f9',
+              color: isDegrowth ? '#ffffff' : '#64748b',
+              cursor: 'pointer',
+              fontWeight: 700,
+            }}
+            title="Negative Deficit / Degrowth"
+          >
+            − Degrowth
+          </button>
+        </div>
+      </div>
+
+      <input
+        type="text"
+        inputMode="decimal"
+        value={raw}
+        onChange={e => {
+          const v = e.target.value;
+          const parsed = parseCurrencyInput(v, true);
+          if (parsed.isLakhsCroresSuffix && parsed.value !== null) {
+            set(k, parsed.value);
+          } else {
+            set(k, v);
+          }
+        }}
+        onBlur={() => {
+          const parsed = parseCurrencyInput(raw, true);
+          if (parsed.value !== null && raw !== '') {
+            set(k, parsed.value);
+          }
+        }}
+        placeholder="Enter ₹ (e.g. 4600000, 46L, -1500000)"
+        style={{
+          borderColor: isDegrowth ? '#fca5a5' : undefined,
+          background: isDegrowth ? '#fffafb' : undefined,
+          color: isDegrowth ? '#b91c1c' : undefined,
+          fontWeight: isDegrowth ? 700 : undefined,
+        }}
+      />
+
+      {meta && (
+        <div style={{ marginTop: 2, fontSize: 11, display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+          <span style={{ color: meta.isNeg ? '#dc2626' : meta.num > 0 ? '#059669' : '#64748b', fontWeight: 700 }}>
+            {meta.formatted} · {meta.text}
+          </span>
+          <span style={{ fontSize: 10, color: '#94a3b8' }}>Rupees (Actuals)</span>
+        </div>
+      )}
+
+      {meta && meta.isSuspicious && (
+        <div style={{ marginTop: 6, padding: '7px 9px', background: '#fffbeb', border: '1px solid #fde68a', borderRadius: 6, fontSize: 11, color: '#92400e', lineHeight: 1.3 }}>
+          <div style={{ fontWeight: 700 }}>
+            ⚠️ Entered {meta.formatted} ({meta.text}).
+          </div>
+          <div style={{ marginTop: 2 }}>
+            Did you mean <b>{meta.isNeg ? '−' : ''}{meta.abs} Lakhs</b>?
+          </div>
+          <button
+            type="button"
+            className="secondary"
+            onClick={() => set(k, meta.lakhsVal)}
+            style={{
+              marginTop: 5,
+              fontSize: 11,
+              fontWeight: 700,
+              padding: '3px 9px',
+              background: '#d97706',
+              color: '#ffffff',
+              border: 'none',
+              borderRadius: 4,
+              cursor: 'pointer',
+              display: 'inline-flex',
+              alignItems: 'center',
+              gap: 4,
+            }}
+          >
+            ⚡ Convert to {meta.lakhsFormatted} ({meta.isNeg ? '−' : ''}{meta.abs} Lakhs)
+          </button>
+        </div>
+      )}
+    </label>
+  );
+};
+
+const handleBranchSubmit = () => {
+  const suspiciousList: Array<{ key: string; label: string; entered: number; converted: number; enteredFmt: string; convertedFmt: string }> = [];
+  for (const [key, label] of Object.entries(AMOUNT_FIELD_METAS)) {
+    const rawVal = values[key];
+    if (rawVal !== undefined && rawVal !== null && rawVal !== '') {
+      const num = Number(rawVal);
+      if (Number.isFinite(num) && Math.abs(num) > 0 && Math.abs(num) < 1000) {
+        const meta = getCurrencyMeta(num, true)!;
+        suspiciousList.push({
+          key,
+          label,
+          entered: num,
+          converted: meta.lakhsVal,
+          enteredFmt: meta.formatted,
+          convertedFmt: meta.lakhsFormatted,
+        });
+      }
+    }
+  }
+
+  if (suspiciousList.length > 0) {
+    setLakhsConfirmModal({
+      items: suspiciousList,
+    });
+    return;
+  }
+
+  act({ action: 'submit', sol, values }, 'Report saved. Prior revisions are retained.');
+};
 const status=(b:any)=>{const s=data.subs.find((x:any)=>x.sol===b.sol);if(!s)return 'Pending';const rev=data.reviews.filter((x:any)=>x.sol===b.sol&&x.revision===s.revision).sort((a:any,b:any)=>b.at.localeCompare(a.at))[0];return rev?.status==='clarification'?'Clarification':rev?'Reviewed':'Submitted';};
 const isAdmin=data?.user.role==='admin';const isGm=data?.user.role==='srm'||data?.user.role==='gm';const canReview=data?.user.role!=='branch';
 const logins:any[]=data?.logins||[];
@@ -693,7 +1039,7 @@ return <div className={"shell role-"+data.user.role}><aside><div className="bran
 <div className="panel"><h2>02 · SMA eliminations today</h2><p>Enter resolved accounts and amounts. Transfers between buckets or to NPA are not successful eliminations.</p>{['sma0','sma1','sma2'].map(p=><div className="smarow" key={p}><div><b>{p.toUpperCase()}</b><small>Month-end: {fmt(snap[p+'_prior_count'])} / ₹{fmt(snap[p+'_prior_amount'])}</small><small>Yesterday: {fmt(snap[p+'_yesterday_count'])} / ₹{fmt(snap[p+'_yesterday_amount'])}</small></div>{field('Eliminated count',p+'_count')}{field('Eliminated amount (₹)',p+'_amount')}</div>)}</div>
 <div className="panel"><div className="paneltop"><div><h2>03 · Loan sanctions today (Core Retail, Core Agri, Core MSME)</h2><p>Branch heads should fill their present day performance. Confirmed figures upto last month and current month till yesterday are shown alongside.</p></div></div>{sanctionSectors.map((s:any)=><div className="smarow" key={s}><div><b>{sectorLabels[s].toUpperCase()}</b><small>Sanctions upto last month: {fmt(snap['sanction_'+s+'_prior_count'])} accts / ₹{fmt(snap['sanction_'+s+'_prior_amount'])}</small><small>Current month till yesterday: {fmt(snap['sanction_'+s+'_mtd_count'])} accts / ₹{fmt(snap['sanction_'+s+'_mtd_amount'])}</small></div>{field('Sanctioned accounts today','sanction_'+s+'_count')}{field('Sanctioned amount today (₹)','sanction_'+s+'_amount')}</div>)}<div className="miniinfo">Provisional MTD sanctions (including today): {sanctionSectors.map((s:any)=>`${sectorLabels[s]}: ${fmt(Number(snap['sanction_'+s+'_mtd_count']||0)+Number(values['sanction_'+s+'_count']||0))} accts (₹${fmt(Number(snap['sanction_'+s+'_mtd_amount']||0)+Number(values['sanction_'+s+'_amount']||0))})`).join(' · ')}</div></div>
 <div className="panel"><div className="paneltop"><div><h2>03B · Loans forwarded to LPC today (Core Retail, Core Agri, Core MSME)</h2><p>Proposals forwarded to the Loan Processing Cell (LPC) today for sanction.</p></div></div>{sanctionSectors.map((s:any)=><div className="smarow" key={'lpc_'+s}><div><b>{sectorLabels[s].toUpperCase()}</b><small>Proposals forwarded to LPC today</small></div>{field('Proposals forwarded today','lpc_'+s+'_count')}{field('Proposal amount forwarded (₹)','lpc_'+s+'_amount')}</div>)}<div className="miniinfo">Total LPC proposals forwarded today: {sanctionSectors.reduce((acc:number,s:any)=>acc+Number(values['lpc_'+s+'_count']||0),0)} proposals · ₹{fmt(sanctionSectors.reduce((acc:number,s:any)=>acc+Number(values['lpc_'+s+'_amount']||0),0))}</div></div>
-<div className="panel"><h2>04 · Campaign additions</h2>{active.length?active.map((c:any)=><div className="campaignrow" key={c.id}><div><b>{c.title}</b><small>{c.start} — {c.end}</small><small>Prior months: {fmt(snap['camp_'+c.id+'_prior'])} · This month through yesterday: {fmt(snap['camp_'+c.id+'_mtd'])}</small></div>{field('Added today','camp_'+c.id)}</div>):<p>No campaigns are active for this reporting date.</p>}</div><div className="panel submitpanel"><label>Notes / explanation<textarea value={values.notes||''} onChange={e=>set('notes',e.target.value)} placeholder="Explain exceptions or relevant changes…"/></label><button disabled={busy} onClick={()=>act({action:'submit',sol,values},'Report saved. Prior revisions are retained.')}>Submit daily performance <CheckCircle2 size={17}/></button></div></>}
+<div className="panel"><h2>04 · Campaign additions</h2>{active.length?active.map((c:any)=><div className="campaignrow" key={c.id}><div><b>{c.title}</b><small>{c.start} — {c.end}</small><small>Prior months: {fmt(snap['camp_'+c.id+'_prior'])} · This month through yesterday: {fmt(snap['camp_'+c.id+'_mtd'])}</small></div>{field('Added today','camp_'+c.id)}</div>):<p>No campaigns are active for this reporting date.</p>}</div><div className="panel submitpanel"><label>Notes / explanation<textarea value={values.notes||''} onChange={e=>set('notes',e.target.value)} placeholder="Explain exceptions or relevant changes…"/></label><button disabled={busy} onClick={handleBranchSubmit}>Submit daily performance <CheckCircle2 size={17}/></button></div></>}
 {sub&&<div className="panel"><div className="paneltop"><div><h2>Submitted performance</h2></div><button type="button" className="secondary" onClick={()=>openReviewImageModal(sol, '', 'submitted')} style={{display:'inline-flex',alignItems:'center',gap:6,fontSize:12,fontWeight:700,color:'#0284c7',borderColor:'#bae6fd',background:'#f0f9ff'}}><Sparkles size={13}/> View / Share Performance Scorecard Image</button></div><div className="grid4">{['sb_opened','sb_funded','cd_opened','cd_funded'].map(k=><div key={k}><small>{k.replace('_',' ').toUpperCase()}</small><h2>{fmt(sub.values[k])}</h2></div>)}</div><div style={{marginTop:12,padding:'10px 14px',background:'#f8fafc',borderRadius:8,border:'1px solid #e2e8f0'}}><div style={{fontSize:11,fontWeight:700,color:'#475569',textTransform:'uppercase',letterSpacing:'0.5px'}}>Deposit Growth Today</div><div className="grid3" style={{marginTop:6}}><div><small>SB Growth Today</small><b style={{display:'block',fontSize:15,color:Number(sub.values.sb_growth_today||0)<0?'#dc2626':'#059669'}}>₹{fmt(sub.values.sb_growth_today||0)}</b></div><div><small>CD Growth Today</small><b style={{display:'block',fontSize:15,color:Number(sub.values.cd_growth_today||0)<0?'#dc2626':'#059669'}}>₹{fmt(sub.values.cd_growth_today||0)}</b></div><div><small>TD Growth Today</small><b style={{display:'block',fontSize:15,color:Number(sub.values.td_growth_today||0)<0?'#dc2626':'#059669'}}>₹{fmt(sub.values.td_growth_today||0)}</b></div></div></div><p>{sub.values.notes||'No additional notes.'}</p>{Object.entries(sub.values.plans||{}).map(([p,plan]:any)=><div key={p}><h3>{p.toUpperCase()} positivity commitment · {plan.date}</h3>{plan.funds.map((f:any,i:number)=><p key={i}>{f.reference} · ₹{fmt(f.amount)} · {f.date}</p>)}</div>)}<div className="grid3">{['sma0','sma1','sma2'].map(p=><p key={p}>{p.toUpperCase()}: {sub.values[p+'_count']} eliminated · ₹{fmt(sub.values[p+'_amount'])}</p>)}</div><div className="grid3">{sanctionSectors.map((s:any)=><p key={s}><b>{sectorLabels[s]} Sanctions today</b>: {fmt(sub.values['sanction_'+s+'_count'])} accts · ₹{fmt(sub.values['sanction_'+s+'_amount'])}</p>)}</div><div className="grid3" style={{marginTop:8}}>{sanctionSectors.map((s:any)=><p key={'lpc_'+s} style={{color:'#0284c7'}}><b>{sectorLabels[s]} LPC Forwarded</b>: {fmt(sub.values['lpc_'+s+'_count']||0)} accts · ₹{fmt(sub.values['lpc_'+s+'_amount']||0)}</p>)}</div>{(()=>{const bFund=(data?.fundingAccounts||[]).filter((a:any)=>a.sol===sol);const bDone=bFund.filter((a:any)=>a.funded);const bAmt=bDone.reduce((acc:number,a:any)=>acc+Number(a.funded_amount||0),0);return <div style={{marginTop:10,fontSize:12,color:'#0369a1',background:'#f0f9ff',padding:'8px 12px',borderRadius:6,border:'1px solid #bae6fd'}}><b>Low Balance Funding (Live Sync)</b>: {bDone.length} of {bFund.length} accounts funded (₹{fmt(bAmt)} mobilized)</div>;})()}{active.map((c:any)=><p key={c.id}>{c.title}: {sub.values['camp_'+c.id]} added today</p>)}</div>}
 {sub&&canReview&&<div className="panel"><h2>{isGm?'General Manager (GM) Executive Direction':'Reply to this entry'}</h2><div className="mention"><Users size={16}/>Branch head selected automatically · {branch?.name} ({sol})</div><label>{isGm?'GM remarks / instructions':'Reviewer remarks'}<textarea value={reply} onChange={e=>setReply(e.target.value)} placeholder={isGm?'Provide executive direction or instructions to the branch head…':'Write your feedback or request a clarification…'}/></label><label>Review outcome<select value={reviewStatus} onChange={e=>setReviewStatus(e.target.value)}>{isGm&&<option value="gm_direction">★ GM Direction / Instruction</option>}<option value="reviewed">Reviewed</option><option value="clarification">Clarification required</option></select></label><p className="muted">The review is saved immediately. Group delivery waits for a configured connection and a verified branch-head mapping.</p><div style={{display:'flex',gap:10,flexWrap:'wrap',alignItems:'center'}}><button disabled={busy} onClick={async()=>{const replyTxt=reply;const revStat=reviewStatus;if(await act({action:'review',sol,text:reply,status:reviewStatus,revision:sub.revision},isGm&&reviewStatus==='gm_direction'?'GM direction saved and queued for group delivery.':'Review saved. The group reply is queued; the administrator can check delivery status.')){setReply('');openReviewImageModal(sol,replyTxt,revStat,data.user.name||data.user.email,data.user.role,new Date().toISOString());}}}><Send size={16}/>{isGm&&reviewStatus==='gm_direction'?'Issue GM Direction':'Save review & queue group reply'}</button><button type="button" className="secondary" onClick={()=>openReviewImageModal(sol,reply,reviewStatus,data.user.name||data.user.email,data.user.role,new Date().toISOString())} style={{display:'inline-flex',alignItems:'center',gap:6,color:'#15803d',borderColor:'#86efac',background:'#f0fdf4',fontWeight:700,padding:'10px 16px',borderRadius:8}}><MessageSquare size={16}/> Post Review to WhatsApp Group (with Image)</button></div></div>}
 <div className="panel"><h2>Review history</h2>{data.reviews.filter((r:any)=>r.sol===sol).map((r:any)=><div className={"review "+(r.role==='srm'||r.role==='gm'||r.status==='srm_direction'||r.status==='gm_direction'?'srm-review-card':'')} key={r.id}><div className="paneltop"><b>{(r.role==='srm'||r.role==='gm')?'★ General Manager (GM)':r.by}</b><div style={{display:'flex',alignItems:'center',gap:8}}><span className={'badge '+((r.status==='srm_direction'||r.status==='gm_direction')?'srm-badge':r.status)}>{(r.status==='srm_direction'||r.status==='gm_direction')?'GM Direction':r.status}</span><button type="button" className="secondary" onClick={()=>openReviewImageModal(sol,r.text,r.status,r.by,r.role,r.at)} style={{display:'inline-flex',alignItems:'center',gap:5,padding:'3px 8px',fontSize:11,fontWeight:700,color:'#15803d',borderColor:'#86efac',background:'#f0fdf4'}} title="Post this review to WhatsApp Group with Performance Scorecard Image"><MessageSquare size={12}/> Post to WhatsApp Group (with Image)</button></div></div><small>{(r.role==='srm'||r.role==='gm')?r.by+' · ':''}Report revision {r.revision} · {r.at}</small><p>{r.text}</p></div>)}{!data.reviews.some((r:any)=>r.sol===sol)&&<p>No reviews yet.</p>}</div></>}</>}
@@ -2269,6 +2615,140 @@ return <div className={"shell role-"+data.user.role}><aside><div className="bran
         >
           Done
         </button>
+      </div>
+    </div>
+  </div>
+)}
+
+{lakhsConfirmModal && (
+  <div
+    style={{
+      position: 'fixed',
+      top: 0,
+      left: 0,
+      right: 0,
+      bottom: 0,
+      background: 'rgba(15, 23, 42, 0.75)',
+      display: 'flex',
+      alignItems: 'center',
+      justifyContent: 'center',
+      zIndex: 10000,
+      padding: 16,
+      backdropFilter: 'blur(3px)',
+    }}
+  >
+    <div
+      style={{
+        background: '#ffffff',
+        borderRadius: 14,
+        maxWidth: 580,
+        width: '100%',
+        boxShadow: '0 25px 50px -12px rgba(0, 0, 0, 0.25)',
+        overflow: 'hidden',
+        border: '1px solid #f59e0b',
+      }}
+    >
+      <div style={{ background: '#d97706', padding: '16px 20px', color: '#ffffff', display: 'flex', alignItems: 'center', gap: 12 }}>
+        <span style={{ fontSize: 26 }}>⚠️</span>
+        <div>
+          <h3 style={{ margin: 0, fontSize: 16, fontWeight: 800 }}>Confirm Amounts: Lakhs vs Actual Rupees (₹)</h3>
+          <p style={{ margin: '2px 0 0', fontSize: 12, opacity: 0.95 }}>
+            All reporting entries must be in <b>actual Rupees (₹)</b>, not in Lakhs.
+          </p>
+        </div>
+      </div>
+
+      <div style={{ padding: '18px 20px' }}>
+        <p style={{ fontSize: 13, color: '#334155', margin: '0 0 14px', lineHeight: 1.5 }}>
+          The following <b>{lakhsConfirmModal.items.length}</b> field(s) were entered with values under <b>₹1,000</b>. Did you enter amounts in <b>Lakhs</b> (e.g. 46 instead of 46,00,000)?
+        </p>
+
+        <div style={{ border: '1px solid #e2e8f0', borderRadius: 8, overflow: 'hidden', marginBottom: 16 }}>
+          <table style={{ width: '100%', fontSize: 12, borderCollapse: 'collapse' }}>
+            <thead>
+              <tr style={{ background: '#f8fafc', borderBottom: '1px solid #e2e8f0', textAlign: 'left', color: '#475569' }}>
+                <th style={{ padding: '8px 12px' }}>Field</th>
+                <th style={{ padding: '8px 12px' }}>You Entered</th>
+                <th style={{ padding: '8px 12px', color: '#059669' }}>Convert to Lakhs (₹)</th>
+              </tr>
+            </thead>
+            <tbody>
+              {lakhsConfirmModal.items.map((item: any) => (
+                <tr key={item.key} style={{ borderBottom: '1px solid #f1f5f9' }}>
+                  <td style={{ padding: '8px 12px', fontWeight: 600, color: '#0f172a' }}>{item.label}</td>
+                  <td style={{ padding: '8px 12px', color: '#dc2626', fontWeight: 700 }}>{item.enteredFmt}</td>
+                  <td style={{ padding: '8px 12px', color: '#059669', fontWeight: 800 }}>{item.convertedFmt}</td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </div>
+
+        <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
+          <button
+            type="button"
+            className="button"
+            onClick={() => {
+              const updatedValues = { ...values };
+              for (const item of lakhsConfirmModal.items) {
+                updatedValues[item.key] = item.converted;
+              }
+              setValues(updatedValues);
+              setLakhsConfirmModal(null);
+              act({ action: 'submit', sol, values: updatedValues }, 'Report saved with amounts converted to Lakhs (actual ₹).');
+            }}
+            style={{
+              padding: '10px 16px',
+              fontSize: 13,
+              fontWeight: 800,
+              background: '#059669',
+              borderColor: '#059669',
+              color: '#ffffff',
+              borderRadius: 8,
+              cursor: 'pointer',
+              display: 'inline-flex',
+              alignItems: 'center',
+              justifyContent: 'center',
+              gap: 8,
+            }}
+          >
+            ⚡ Convert All to Lakhs (₹) &amp; Submit Daily Report
+          </button>
+
+          <div style={{ display: 'flex', gap: 8, marginTop: 4 }}>
+            <button
+              type="button"
+              className="secondary"
+              onClick={() => {
+                setLakhsConfirmModal(null);
+                act({ action: 'submit', sol, values }, 'Report saved. Prior revisions are retained.');
+              }}
+              style={{
+                flex: 1,
+                padding: '8px 12px',
+                fontSize: 12,
+                color: '#475569',
+                cursor: 'pointer',
+              }}
+            >
+              Submit as Actuals ({lakhsConfirmModal.items[0]?.enteredFmt})
+            </button>
+            <button
+              type="button"
+              className="secondary"
+              onClick={() => setLakhsConfirmModal(null)}
+              style={{
+                flex: 1,
+                padding: '8px 12px',
+                fontSize: 12,
+                color: '#64748b',
+                cursor: 'pointer',
+              }}
+            >
+              Cancel &amp; Edit Fields
+            </button>
+          </div>
+        </div>
       </div>
     </div>
   </div>

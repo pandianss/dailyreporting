@@ -382,7 +382,7 @@ export async function generateBranchPerformanceScorecard(
 
   ctx.fillStyle = sbToday >= 0 ? '#059669' : '#dc2626';
   ctx.font = '900 24px -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif';
-  ctx.fillText(`${sbToday >= 0 ? '+' : ''}₹${fmt(sbToday)}`, pad + 14, curY + 56);
+  ctx.fillText(sbToday >= 0 ? '+₹' + fmt(sbToday) : '−₹' + fmt(Math.abs(sbToday)), pad + 14, curY + 56);
 
   // SB Opened Pill
   ctx.fillStyle = '#eff6ff';
@@ -418,7 +418,7 @@ export async function generateBranchPerformanceScorecard(
 
   ctx.fillStyle = cdToday >= 0 ? '#059669' : '#dc2626';
   ctx.font = '900 24px -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif';
-  ctx.fillText(`${cdToday >= 0 ? '+' : ''}₹${fmt(cdToday)}`, cdX + 14, curY + 56);
+  ctx.fillText(cdToday >= 0 ? '+₹' + fmt(cdToday) : '−₹' + fmt(Math.abs(cdToday)), cdX + 14, curY + 56);
 
   // CD Opened Pill
   ctx.fillStyle = '#f8fafc';
@@ -456,7 +456,7 @@ export async function generateBranchPerformanceScorecard(
 
   ctx.fillStyle = tdToday >= 0 ? '#0284c7' : '#dc2626';
   ctx.font = '900 24px -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif';
-  ctx.fillText(`${tdToday >= 0 ? '+' : ''}₹${fmt(tdToday)}`, pad + 16, curY + 58);
+  ctx.fillText(tdToday >= 0 ? '+₹' + fmt(tdToday) : '−₹' + fmt(Math.abs(tdToday)), pad + 16, curY + 58);
 
   ctx.fillStyle = '#64748b';
   ctx.font = '600 11px -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif';

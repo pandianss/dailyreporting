@@ -182,7 +182,7 @@ export function renderScorecardSvg(opts: {
     <rect width="${col2W}" height="155" rx="12" fill="#ffffff" stroke="${sbToday >= 0 ? '#bbf7d0' : '#fecaca'}" stroke-width="1.5" filter="url(#cardShadow)"/>
     <rect width="${col2W}" height="6" rx="3" fill="${sbToday >= 0 ? '#10b981' : '#ef4444'}"/>
     <text x="14" y="26" fill="#475569" font-family="-apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif" font-size="11" font-weight="800">SB GROWTH TODAY</text>
-    <text x="14" y="56" fill="${sbToday >= 0 ? '#059669' : '#dc2626'}" font-family="-apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif" font-size="24" font-weight="900">${sbToday >= 0 ? '+' : ''}₹${fmt(sbToday)}</text>
+    <text x="14" y="56" fill="${sbToday >= 0 ? '#059669' : '#dc2626'}" font-family="-apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif" font-size="24" font-weight="900">${sbToday >= 0 ? '+₹' + fmt(sbToday) : '−₹' + fmt(Math.abs(sbToday))}</text>
     <rect x="14" y="70" width="${col2W - 28}" height="28" rx="6" fill="#eff6ff"/>
     <text x="22" y="89" fill="#1e40af" font-family="-apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif" font-size="12" font-weight="700">SB Opened: +${sbOpened} (${sbFunded} funded)</text>
     <text x="14" y="122" fill="#64748b" font-family="-apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif" font-size="11" font-weight="600">Confirmed MTD: ₹${fmt(cumSb)}</text>
@@ -194,7 +194,7 @@ export function renderScorecardSvg(opts: {
     <rect width="${col2W}" height="155" rx="12" fill="#ffffff" stroke="${cdToday >= 0 ? '#bbf7d0' : '#fecaca'}" stroke-width="1.5" filter="url(#cardShadow)"/>
     <rect width="${col2W}" height="6" rx="3" fill="${cdToday >= 0 ? '#10b981' : '#ef4444'}"/>
     <text x="14" y="26" fill="#475569" font-family="-apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif" font-size="11" font-weight="800">CD GROWTH TODAY</text>
-    <text x="14" y="56" fill="${cdToday >= 0 ? '#059669' : '#dc2626'}" font-family="-apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif" font-size="24" font-weight="900">${cdToday >= 0 ? '+' : ''}₹${fmt(cdToday)}</text>
+    <text x="14" y="56" fill="${cdToday >= 0 ? '#059669' : '#dc2626'}" font-family="-apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif" font-size="24" font-weight="900">${cdToday >= 0 ? '+₹' + fmt(cdToday) : '−₹' + fmt(Math.abs(cdToday))}</text>
     <rect x="14" y="70" width="${col2W - 28}" height="28" rx="6" fill="#f8fafc"/>
     <text x="22" y="89" fill="#334155" font-family="-apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif" font-size="12" font-weight="700">CD Opened: +${cdOpened} (${cdFunded} funded)</text>
     <text x="14" y="122" fill="#64748b" font-family="-apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif" font-size="11" font-weight="600">Confirmed MTD: ₹${fmt(cumCd)}</text>
@@ -206,12 +206,12 @@ export function renderScorecardSvg(opts: {
     <rect width="${contentW}" height="125" rx="12" fill="#ffffff" stroke="${tdToday >= 0 ? '#bae6fd' : '#fecaca'}" stroke-width="1.5" filter="url(#cardShadow)"/>
     <rect width="${contentW}" height="6" rx="3" fill="${tdToday >= 0 ? '#0284c7' : '#ef4444'}"/>
     <text x="16" y="28" fill="#475569" font-family="-apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif" font-size="11" font-weight="800">TD (TERM DEPOSIT) MOBILIZATION TODAY</text>
-    <text x="16" y="58" fill="${tdToday >= 0 ? '#0284c7' : '#dc2626'}" font-family="-apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif" font-size="24" font-weight="900">${tdToday >= 0 ? '+' : ''}₹${fmt(tdToday)}</text>
+    <text x="16" y="58" fill="${tdToday >= 0 ? '#0284c7' : '#dc2626'}" font-family="-apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif" font-size="24" font-weight="900">${tdToday >= 0 ? '+₹' + fmt(tdToday) : '−₹' + fmt(Math.abs(tdToday))}</text>
     <text x="16" y="84" fill="#64748b" font-family="-apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif" font-size="11" font-weight="600">Total Deposits Mobilized Today (SB+CD+TD): ₹${fmt(totalDep)}</text>
     <text x="16" y="104" fill="${tdToday >= 0 ? '#0369a1' : '#b91c1c'}" font-family="-apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif" font-size="11" font-weight="700">${tdToday >= 0 ? '▲ Positive term deposits accretion today' : '▼ Term deposit outflow today'}</text>
     <rect x="${contentW - 270}" y="22" width="254" height="80" rx="8" fill="#f0fdf4" stroke="#bbf7d0"/>
     <text x="${contentW - 256}" y="44" fill="#166534" font-family="-apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif" font-size="11" font-weight="800">TOTAL DEPOSIT ACCRETION</text>
-    <text x="${contentW - 256}" y="66" fill="#15803d" font-family="-apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif" font-size="14" font-weight="900">${totalDep >= 0 ? '+' : ''}₹${fmt(totalDep)} today</text>
+    <text x="${contentW - 256}" y="66" fill="#15803d" font-family="-apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif" font-size="14" font-weight="900">${totalDep >= 0 ? '+₹' + fmt(totalDep) : '−₹' + fmt(Math.abs(totalDep))} today</text>
     <text x="${contentW - 256}" y="86" fill="#047857" font-family="-apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif" font-size="11" font-weight="700">SB + CD + TD Net Mobilized</text>
   </g>
 
