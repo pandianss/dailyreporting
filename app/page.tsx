@@ -1,8 +1,9 @@
 'use client';
 import {useEffect,useState,useRef} from 'react';
-import {LayoutDashboard,Upload,ClipboardList,MessageSquare,Users,Flag,ArrowUpRight,ArrowDownRight,CheckCircle2,Clock,ChevronRight,Download,Plus,Send,RefreshCw,Building2,ExternalLink,UserCheck,X,FastForward,RotateCcw,Copy,Phone,Sparkles} from 'lucide-react';
+import {LayoutDashboard,Upload,ClipboardList,MessageSquare,Users,Flag,ArrowUpRight,ArrowDownRight,CheckCircle2,Clock,ChevronRight,Download,Plus,Send,RefreshCw,Building2,ExternalLink,UserCheck,X,FastForward,RotateCcw,Copy,Phone,Sparkles,Megaphone} from 'lucide-react';
 import Login from './Login';
 import { generateBranchPerformanceScorecard } from './performance-image';
+import { generateAnnouncementImage } from './announcement-image';
 import {baseFields,parseCSV,validateSnapshot,cutoffs,sanctionSectors,sanctionSectorLabels,sanctionEntryFields,parseDirectoryCSV,validateDirectory,parseCampaignCSV,validateCampaignData} from './model.mjs';
 const sectorLabels:Record<string,string>=sanctionSectorLabels;
 const today=()=>new Date().toLocaleDateString('en-CA',{timeZone:'Asia/Kolkata'});
@@ -195,8 +196,55 @@ function getCampaignIndividualMsg(camp: any, bStat: any, dateStr: string) {
   );
 }
 
-export default function Portal(){const [auth,setAuth]=useState<any>(undefined);async function check(){const r=await fetch('/api/auth');const j:any=await r.json();setAuth(j.user);}useEffect(()=>{document.title='IOB | Daily Performance Reporting Portal';check().catch(()=>setAuth(null));},[]);if(auth===undefined)return <main className="loading"><img src="/logo.svg" alt="Indian Overseas Bank Logo" className="sitelogo sitelogo-lg"/><p>Opening your workspace…</p></main>;if(!auth)return <Login onSuccess={check}/>;return <Home onExit={()=>setAuth(null)}/>;}
-function Home({onExit}:{onExit:()=>void}){const loadId=useRef(0),routed=useRef(false);const [date,setDate]=useState(today()),[tab,setTab]=useState('Overview'),[data,setData]=useState<any>(null),[error,setError]=useState(''),[notice,setNotice]=useState(''),[busy,setBusy]=useState(false),[search,setSearch]=useState(''),[filter,setFilter]=useState('All branches'),[loginSearch,setLoginSearch]=useState(''),[loginFilter,setLoginFilter]=useState('All'),[sol,setSol]=useState(''),[values,setValues]=useState<any>({}),[reply,setReply]=useState(''),[reviewStatus,setReviewStatus]=useState('reviewed'),[rows,setRows]=useState<any[]>([]),[importName,setImportName]=useState(''),[dirRows,setDirRows]=useState<any[]>([]),[dirFileName,setDirFileName]=useState(''),[meta,setMeta]=useState<any>({cutoff:cutoffs(today()).yesterday,deadline:'17:00',baseline:'',fundedDefinition:'',reason:''}),[campaign,setCampaign]=useState({title:'',start:today(),end:today()}),[contact,setContact]=useState({sol:'0174',name:'',phone:'91'}),[grant,setGrant]=useState({email:'',phone:'',role:'branch',sol:'0174'});
+export default function Portal(){
+  const [auth,setAuth]=useState<any>(undefined);
+  const [slowAuth,setSlowAuth]=useState(false);
+  async function check(){
+    const controller=new AbortController();
+    const timeout=setTimeout(()=>controller.abort(),12000);
+    try{
+      const r=await fetch('/api/auth',{cache:'no-store',signal:controller.signal});
+      clearTimeout(timeout);
+      const j:any=await r.json();
+      setAuth(j.user);
+    }catch(e:any){
+      clearTimeout(timeout);
+      setAuth(null);
+    }
+  }
+  useEffect(()=>{
+    document.title='IOB | Daily Performance Reporting Portal';
+    check();
+    const timer=setTimeout(()=>setSlowAuth(true),4000);
+    return ()=>clearTimeout(timer);
+  },[]);
+  if(auth===undefined)return (
+    <main className="loading">
+      <img src="/logo.svg" alt="Indian Overseas Bank Logo" className="sitelogo sitelogo-lg"/>
+      <h1>Daily Performance</h1>
+      <p>Opening your workspace…</p>
+      {slowAuth&&(
+        <div style={{marginTop:14,display:'flex',flexDirection:'column',alignItems:'center',gap:8}}>
+          <small style={{color:'#64748b'}}>Connecting to regional server…</small>
+          <button type="button" onClick={()=>{setSlowAuth(false);check();}} style={{padding:'6px 14px',fontSize:13,cursor:'pointer'}}>Retry connection</button>
+        </div>
+      )}
+    </main>
+  );
+  if(!auth)return <Login onSuccess={check}/>;
+  return <Home onExit={()=>setAuth(null)}/>;
+}
+function Home({onExit}:{onExit:()=>void}){
+  const loadId=useRef(0),routed=useRef(false);
+  const [date,setDate]=useState(()=>{
+    if(typeof window!=='undefined'){
+      const d=new URLSearchParams(window.location.search).get('date');
+      if(d){try{cutoffs(d);return d;}catch{}}
+    }
+    return today();
+  });
+  const [slowLoad,setSlowLoad]=useState(false);
+  const [tab,setTab]=useState('Overview'),[data,setData]=useState<any>(null),[error,setError]=useState(''),[notice,setNotice]=useState(''),[busy,setBusy]=useState(false),[search,setSearch]=useState(''),[filter,setFilter]=useState('All branches'),[loginSearch,setLoginSearch]=useState(''),[loginFilter,setLoginFilter]=useState('All'),[sol,setSol]=useState(''),[values,setValues]=useState<any>({}),[reply,setReply]=useState(''),[reviewStatus,setReviewStatus]=useState('reviewed'),[rows,setRows]=useState<any[]>([]),[importName,setImportName]=useState(''),[dirRows,setDirRows]=useState<any[]>([]),[dirFileName,setDirFileName]=useState(''),[meta,setMeta]=useState<any>(()=>({cutoff:cutoffs(today()).yesterday,deadline:'17:00',baseline:'',fundedDefinition:'',reason:''})),[campaign,setCampaign]=useState({title:'',start:today(),end:today()}),[contact,setContact]=useState({sol:'0174',name:'',phone:'91'}),[grant,setGrant]=useState({email:'',phone:'',role:'branch',sol:'0174'});
 const [showCampModal, setShowCampModal] = useState(false);
 const [selectedCampId, setSelectedCampId] = useState<string>('');
 const [campSeqIdx, setCampSeqIdx] = useState<number | null>(null);
@@ -439,8 +487,123 @@ async function handleShareReviewToBoth(modalData: any) {
     window.open(`https://wa.me/?text=${encodeURIComponent(groupText)}`, '_blank');
   }, 1200);
 }
-async function load(isSilent=false){const requestId=++loadId.current;if(!isSilent)setError('');try{const r=await fetch('/api/portal?date='+date+'&portal=daily&_t='+Date.now(),{cache:'no-store'}),j:any=await r.json();if(requestId!==loadId.current)return;if(!r.ok)throw Error(j.error);setData(j);if(j.user.role==='branch'){setSol(j.user.sol);setValues((prev:any)=>Object.keys(prev).length?prev:(j.subs.find((x:any)=>x.sol===j.user.sol)?.values||{}));}if(!routed.current){setTab(j.user.role==='branch'?'Branch report':j.user.role==='reviewer'?'Review desk':(j.user.role==='srm'||j.user.role==='gm')?'Overview':'Publish data');setReviewStatus((j.user.role==='srm'||j.user.role==='gm')?'gm_direction':'reviewed');routed.current=true;}}catch(e:any){if(!isSilent)setError(e.message);if(/sign.in|session|account changed/i.test(e.message))onExit();}}
-useEffect(()=>{const d=new URLSearchParams(window.location.search).get('date');if(d){try{cutoffs(d);setDate(d);}catch{}}},[]);
+
+const [announcementModal, setAnnouncementModal] = useState<any>(null);
+const [annImgCopied, setAnnImgCopied] = useState(false);
+const [annTxtCopied, setAnnTxtCopied] = useState(false);
+
+async function openAnnouncementImageModal(targetDate?: string) {
+  const d = targetDate || date;
+  setAnnouncementModal({
+    isOpen: true,
+    date: d,
+    loading: true,
+    dataUrl: null,
+    blob: null,
+    file: null,
+    textSummary: '',
+  });
+  setAnnImgCopied(false);
+  setAnnTxtCopied(false);
+
+  try {
+    const res = await generateAnnouncementImage({
+      date: d,
+      deadline: data?.pub?.deadline || meta.deadline || '17:00',
+      cutoff: data?.pub?.cutoff || meta.cutoff || 'yesterday',
+      baseline: data?.pub?.baseline || meta.baseline || 'Prior month-end confirmed position',
+      fundedDefinition: data?.pub?.fundedDefinition || meta.fundedDefinition || 'Accounts funded as per policy',
+      version: data?.pub?.version || 1,
+      totalBranches: data?.branches?.length || 56,
+      reason: data?.pub?.reason || meta.reason || undefined,
+      expectedOrigin: typeof window !== 'undefined' ? window.location.origin : 'https://dailyreport-9265a.web.app',
+    });
+
+    setAnnouncementModal({
+      isOpen: true,
+      date: d,
+      loading: false,
+      dataUrl: res.dataUrl,
+      blob: res.blob,
+      file: res.file,
+      textSummary: res.textSummary,
+    });
+  } catch (err: any) {
+    console.error('Failed to generate announcement image:', err);
+    setAnnouncementModal({
+      isOpen: true,
+      date: d,
+      loading: false,
+      error: err.message || 'Failed to render announcement image',
+      dataUrl: null,
+      blob: null,
+      file: null,
+      textSummary: '',
+    });
+  }
+}
+
+async function handleShareAnnouncement(modalData: any) {
+  if (!modalData) return;
+  const text = modalData.textSummary;
+
+  if (typeof navigator !== 'undefined' && (navigator as any).canShare && (navigator as any).canShare({ files: [modalData.file] })) {
+    try {
+      await (navigator as any).share({
+        title: `IOB Daily Reporting Open - ${modalData.date}`,
+        text,
+        files: [modalData.file],
+      });
+      return;
+    } catch (shareErr: any) {
+      if (shareErr.name === 'AbortError') return;
+      console.warn('Native share failed, falling back:', shareErr);
+    }
+  }
+
+  try {
+    if (typeof ClipboardItem !== 'undefined' && navigator.clipboard && navigator.clipboard.write && modalData.blob) {
+      await navigator.clipboard.write([new ClipboardItem({ 'image/png': modalData.blob })]);
+      setAnnImgCopied(true);
+      setTimeout(() => setAnnImgCopied(false), 2500);
+    }
+  } catch {}
+
+  window.open(`https://wa.me/?text=${encodeURIComponent(text)}`, '_blank');
+}
+async function load(isSilent=false){
+  const requestId=++loadId.current;
+  if(!isSilent)setError('');
+  const controller=new AbortController();
+  const timeout=setTimeout(()=>controller.abort(),15000);
+  try{
+    const r=await fetch('/api/portal?date='+date+'&portal=daily&_t='+Date.now(),{cache:'no-store',signal:controller.signal}),j:any=await r.json();
+    clearTimeout(timeout);
+    if(requestId!==loadId.current)return;
+    if(!r.ok)throw Error(j.error);
+    setData(j);
+    setSlowLoad(false);
+    if(j.user.role==='branch'){
+      setSol(j.user.sol);
+      setValues((prev:any)=>Object.keys(prev).length?prev:(j.subs.find((x:any)=>x.sol===j.user.sol)?.values||{}));
+    }
+    if(!routed.current){
+      setTab(j.user.role==='branch'?'Branch report':j.user.role==='reviewer'?'Review desk':(j.user.role==='srm'||j.user.role==='gm')?'Overview':'Publish data');
+      setReviewStatus((j.user.role==='srm'||j.user.role==='gm')?'gm_direction':'reviewed');
+      routed.current=true;
+    }
+  }catch(e:any){
+    clearTimeout(timeout);
+    const msg=e.name==='AbortError'?'Server connection timed out. Tap retry to reconnect.':e.message;
+    if(!isSilent)setError(msg);
+    if(/sign.in|session|account changed/i.test(msg))onExit();
+  }
+}
+useEffect(()=>{
+  if(data){setSlowLoad(false);return;}
+  const timer=setTimeout(()=>setSlowLoad(true),4000);
+  return ()=>clearTimeout(timer);
+},[data]);
 useEffect(()=>{load();setValues({});setReply('');setRows([]);setMeta((m:any)=>({...m,cutoff:cutoffs(date).yesterday}));},[date]);
 useEffect(()=>{const timer=setInterval(()=>{if(document.visibilityState==='visible')load(true);},15000);const onFocus=()=>load(true);const onVisibility=()=>{if(document.visibilityState==='visible')load(true);};window.addEventListener('focus',onFocus);document.addEventListener('visibilitychange',onVisibility);return ()=>{clearInterval(timer);window.removeEventListener('focus',onFocus);document.removeEventListener('visibilitychange',onVisibility);};},[date]);
 async function act(body:any,message:string){setBusy(true);setError('');setNotice('');try{const r=await fetch('/api/portal',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({date,...body})}),j:any=await r.json();if(!r.ok)throw Error(j.error);await load();setNotice(message);return true;}catch(e:any){setError(e.message);return false;}finally{setBusy(false);}}
@@ -804,9 +967,29 @@ const [campFileName, setCampFileName] = useState('');
 async function uploadDirectory(file:File){try{const text=await file.text();const r=validateDirectory(parseDirectoryCSV(text),data.branches,data.user.phone);setDirRows(r);setDirFileName(file.name);setError('');}catch(e:any){setDirRows([]);setError(e.message);}}
 function directoryTemplate(){download('IOB_branch_directory_template.csv','sol,branch_name,head_name,phone,email,role\n3933,Regional Office,,,,srm\n3933,Regional Office,,,,reviewer\n'+data.branches.map((b:any)=>[b.sol,'"'+(b.name||'').replace(/"/g,'""')+'"','','','','branch'].join(',')).join('\n'));}
 async function switchPortal(target:'sma'|'funding'){setBusy(true);try{const r=await fetch('/api/portal',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({action:'handoff',date})});const j:any=await r.json();if(!r.ok||!j.token)throw Error(j.error||'Failed to create handover');const isMainDomain=window.location.hostname.includes('dailyreport-9265a');const targetBase=isMainDomain?(target==='sma'?'https://dailyreport-sma-9265a.web.app':'https://dailyreport-funding-9265a.web.app'):window.location.origin+'/'+target;window.location.href=`${targetBase}/?handoff=${encodeURIComponent(j.token)}&date=${date}`;}catch(e:any){setError(e.message);setBusy(false);}}
-if(!data)return <main className="loading"><img src="/logo.svg" alt="Indian Overseas Bank Logo" className="sitelogo sitelogo-lg"/><h1>Daily Performance</h1><p>{error||'Opening your regional workspace…'}</p>{error&&<button onClick={()=>load()}>Try again</button>}</main>;
+if(!data)return (
+  <main className="loading">
+    <img src="/logo.svg" alt="Indian Overseas Bank Logo" className="sitelogo sitelogo-lg"/>
+    <h1>Daily Performance</h1>
+    <p>{error||'Opening your regional workspace…'}</p>
+    {error ? (
+      <div style={{marginTop:14,display:'flex',gap:10,justifyContent:'center'}}>
+        <button type="button" onClick={()=>load()} style={{padding:'8px 18px',fontWeight:700,cursor:'pointer'}}>Try again</button>
+        <button type="button" className="secondary" onClick={()=>window.location.reload()} style={{padding:'8px 16px',cursor:'pointer'}}>Reload page</button>
+      </div>
+    ) : slowLoad ? (
+      <div style={{marginTop:16,display:'flex',flexDirection:'column',alignItems:'center',gap:10}}>
+        <small style={{color:'#64748b'}}>Connecting to Dindigul regional workspace…<br/>Server instance is waking up, please wait a moment.</small>
+        <div style={{display:'flex',gap:8}}>
+          <button type="button" onClick={()=>load()} style={{padding:'6px 14px',fontSize:13,cursor:'pointer'}}>Retry connection</button>
+          <button type="button" className="secondary" onClick={()=>window.location.reload()} style={{padding:'6px 14px',fontSize:13,cursor:'pointer'}}>Reload</button>
+        </div>
+      </div>
+    ) : null}
+  </main>
+);
 return <div className={"shell role-"+data.user.role}><aside><div className="brand"><img src="/logo.svg" alt="Indian Overseas Bank Logo" className="sitelogo"/><div>Indian Overseas Bank<small>DAILY PERFORMANCE REPORTING</small></div></div><div className="navlabel">PERFORMANCE WORKSPACE</div><nav>{nav.map(([name,Icon]:any)=><button key={name} className={tab===name?'selected':''} onClick={()=>{setTab(name);setNotice('');}}><Icon size={18}/>{name}{name==='Message queue'&&data.jobs.some((x:any)=>x.status!=='sent')&&<i/>}</button>)}</nav><div className="sidebottom"><span className="avatar">{(data.user.name||data.user.email||data.user.phone?.slice(2)||'U')[0].toUpperCase()}</span><div>{data.user.role==='admin'?'Regional administrator':(data.user.role==='srm'||data.user.role==='gm')?'General Manager (GM)':data.user.role==='branch'?'Branch head':'Reviewer'}<small>{data.user.phone?.slice(2)}</small></div></div></aside>
-<main><header><div className="crumb">Dindigul region <ChevronRight size={14}/> {tab}</div><div className="headeractions"><span title="Real-time live sync every 8 seconds" style={{display:'inline-flex',alignItems:'center',gap:5,fontSize:11,color:'#059669',fontWeight:700,background:'#ecfdf5',padding:'4px 8px',borderRadius:20,border:'1px solid #a7f3d0'}}><span style={{width:6,height:6,borderRadius:'50%',background:'#10b981',display:'inline-block'}}/> Live Sync</span><button type="button" className="secondary" onClick={()=>switchPortal('sma')} title="Open SMA Follow-up Portal" style={{display:'inline-flex',alignItems:'center',gap:6,padding:'6px 12px',fontSize:12,fontWeight:600,color:'#b91c1c',borderColor:'#fecaca',background:'#fef2f2'}}>SMA Follow-up <ExternalLink size={13}/></button><button type="button" className="secondary" onClick={()=>switchPortal('funding')} title="Open Low Balance Funding Portal" style={{display:'inline-flex',alignItems:'center',gap:6,padding:'6px 12px',fontSize:12,fontWeight:600,color:'#0284c7',borderColor:'#bae6fd',background:'#f0f9ff'}}>Low Balance Funding <ExternalLink size={13}/></button>{(isAdmin||isGm||data.user.role==='reviewer')&&<button type="button" className="secondary" onClick={()=>{setReminderTab('pending');setReminderSeqIdx(0);setShowReminderModal(true);}} title="Open WhatsApp Reminders Center" style={{display:'inline-flex',alignItems:'center',gap:6,padding:'6px 12px',fontSize:12,fontWeight:700,color:'#15803d',borderColor:'#86efac',background:'#f0fdf4'}}><MessageSquare size={13}/> WhatsApp Reminders ({pendingSubBranches.length} pending)</button>}{(isAdmin||isGm)&&active.length>0&&<button type="button" className="secondary" onClick={()=>{setSelectedCampId(active[0]?.id);setCampSeqIdx(0);setShowCampModal(true);}} title="Open WhatsApp Campaign Messaging Center" style={{display:'inline-flex',alignItems:'center',gap:6,padding:'6px 12px',fontSize:12,fontWeight:600,color:'#15803d',borderColor:'#86efac',background:'#f0fdf4'}}><MessageSquare size={13}/> Campaign WhatsApp ({active.length})</button>}<span className={"private "+(isGm?"srm-tag":"")}>{data.user.role==='branch'?'Branch head':data.user.role==='reviewer'?'Reviewer':(data.user.role==='srm'||data.user.role==='gm')?'General Manager (GM)':'Admin'}</span><button className="textbutton" onClick={async()=>{await fetch('/api/auth',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({action:'logout'})});onExit();}}>Sign out</button><button className="icon" onClick={()=>load()} aria-label="Refresh"><RefreshCw size={17}/></button></div></header><div className="content"><div className="title"><div><div className="eyebrow">DAILY REPORTING</div><h1>{data.user.role==='branch'?'Daily entry':tab}</h1><p>{tab==='Overview'?'A clear view of branch performance. One day at a time.':tab==='Review desk'?'Review submissions, follow commitments and reply to the group.':tab==='Publish data'?'Validate the confirmed position before opening today’s reporting.':'Dindigul regional performance workspace'}</p></div><label className="date">Reporting date<input type="date" value={date} onChange={e=>e.target.value&&setDate(e.target.value)}/></label></div>
+<main><header><div className="crumb">Dindigul region <ChevronRight size={14}/> {tab}</div><div className="headeractions"><span title="Real-time live sync every 8 seconds" style={{display:'inline-flex',alignItems:'center',gap:5,fontSize:11,color:'#059669',fontWeight:700,background:'#ecfdf5',padding:'4px 8px',borderRadius:20,border:'1px solid #a7f3d0'}}><span style={{width:6,height:6,borderRadius:'50%',background:'#10b981',display:'inline-block'}}/> Live Sync</span><button type="button" className="secondary" onClick={()=>switchPortal('sma')} title="Open SMA Follow-up Portal" style={{display:'inline-flex',alignItems:'center',gap:6,padding:'6px 12px',fontSize:12,fontWeight:600,color:'#b91c1c',borderColor:'#fecaca',background:'#fef2f2'}}>SMA Follow-up <ExternalLink size={13}/></button><button type="button" className="secondary" onClick={()=>switchPortal('funding')} title="Open Low Balance Funding Portal" style={{display:'inline-flex',alignItems:'center',gap:6,padding:'6px 12px',fontSize:12,fontWeight:600,color:'#0284c7',borderColor:'#bae6fd',background:'#f0f9ff'}}>Low Balance Funding <ExternalLink size={13}/></button>{data?.pub&&(isAdmin||isGm||data.user.role==='reviewer')&&<button type="button" className="secondary" onClick={()=>openAnnouncementImageModal(date)} title="Open WhatsApp Announcement Image for this date" style={{display:'inline-flex',alignItems:'center',gap:6,padding:'6px 12px',fontSize:12,fontWeight:700,color:'#0f766e',borderColor:'#99f6e4',background:'#f0fdfa'}}><Megaphone size={13}/> Announcement Image</button>}{(isAdmin||isGm||data.user.role==='reviewer')&&<button type="button" className="secondary" onClick={()=>{setReminderTab('pending');setReminderSeqIdx(0);setShowReminderModal(true);}} title="Open WhatsApp Reminders Center" style={{display:'inline-flex',alignItems:'center',gap:6,padding:'6px 12px',fontSize:12,fontWeight:700,color:'#15803d',borderColor:'#86efac',background:'#f0fdf4'}}><MessageSquare size={13}/> WhatsApp Reminders ({pendingSubBranches.length} pending)</button>}{(isAdmin||isGm)&&active.length>0&&<button type="button" className="secondary" onClick={()=>{setSelectedCampId(active[0]?.id);setCampSeqIdx(0);setShowCampModal(true);}} title="Open WhatsApp Campaign Messaging Center" style={{display:'inline-flex',alignItems:'center',gap:6,padding:'6px 12px',fontSize:12,fontWeight:600,color:'#15803d',borderColor:'#86efac',background:'#f0fdf4'}}><MessageSquare size={13}/> Campaign WhatsApp ({active.length})</button>}<span className={"private "+(isGm?"srm-tag":"")}>{data.user.role==='branch'?'Branch head':data.user.role==='reviewer'?'Reviewer':(data.user.role==='srm'||data.user.role==='gm')?'General Manager (GM)':'Admin'}</span><button className="textbutton" onClick={async()=>{await fetch('/api/auth',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({action:'logout'})});onExit();}}>Sign out</button><button className="icon" onClick={()=>load()} aria-label="Refresh"><RefreshCw size={17}/></button></div></header><div className="content"><div className="title"><div><div className="eyebrow">DAILY REPORTING</div><h1>{data.user.role==='branch'?'Daily entry':tab}</h1><p>{tab==='Overview'?'A clear view of branch performance. One day at a time.':tab==='Review desk'?'Review submissions, follow commitments and reply to the group.':tab==='Publish data'?'Validate the confirmed position before opening today’s reporting.':'Dindigul regional performance workspace'}</p></div><label className="date">Reporting date<input type="date" value={date} onChange={e=>e.target.value&&setDate(e.target.value)}/></label></div>
 {data.user.role!=='branch'&&<div className="tickertape-wrap no-print"><div className="tickertape-label"><span className="live-dot"/> REGIONAL LIVE PULSE</div><div className="tickertape-track"><div className="tickertape-content">{tickerItems.concat(tickerItems).map((item,idx)=><button key={`${item.id}-${idx}`} type="button" className="tickertape-item" onClick={()=>openBranch(item.sol,tab==='Review desk'?'Review entry':'Branch report')} title={`Click to open ${item.branchName} (${item.sol})`}><span className="tickertape-icon">{item.icon}</span><span className="tickertape-text">{item.text}</span><span className="tickertape-link">Open branch →</span></button>)}</div></div></div>}
 {error&&<div className="alert error" role="alert">{error}</div>}{notice&&<div className="alert success" role="status">{notice}</div>}
 {!data.pub&&tab!=='Publish data'&&<div className="alert neutral"><Clock size={19}/><div><b>Reporting has not opened for this date.</b><br/>{isAdmin?'Publish the daily position to enable branch submissions.':'Your administrator will open reporting after uploading the daily position.'}</div>{isAdmin&&<button className="secondary" onClick={()=>setTab('Publish data')}>Upload daily data <ChevronRight size={16}/></button>}</div>}
@@ -1043,7 +1226,39 @@ return <div className={"shell role-"+data.user.role}><aside><div className="bran
 {sub&&<div className="panel"><div className="paneltop"><div><h2>Submitted performance</h2></div><button type="button" className="secondary" onClick={()=>openReviewImageModal(sol, '', 'submitted')} style={{display:'inline-flex',alignItems:'center',gap:6,fontSize:12,fontWeight:700,color:'#0284c7',borderColor:'#bae6fd',background:'#f0f9ff'}}><Sparkles size={13}/> View / Share Performance Scorecard Image</button></div><div className="grid4">{['sb_opened','sb_funded','cd_opened','cd_funded'].map(k=><div key={k}><small>{k.replace('_',' ').toUpperCase()}</small><h2>{fmt(sub.values[k])}</h2></div>)}</div><div style={{marginTop:12,padding:'10px 14px',background:'#f8fafc',borderRadius:8,border:'1px solid #e2e8f0'}}><div style={{fontSize:11,fontWeight:700,color:'#475569',textTransform:'uppercase',letterSpacing:'0.5px'}}>Deposit Growth Today</div><div className="grid3" style={{marginTop:6}}><div><small>SB Growth Today</small><b style={{display:'block',fontSize:15,color:Number(sub.values.sb_growth_today||0)<0?'#dc2626':'#059669'}}>₹{fmt(sub.values.sb_growth_today||0)}</b></div><div><small>CD Growth Today</small><b style={{display:'block',fontSize:15,color:Number(sub.values.cd_growth_today||0)<0?'#dc2626':'#059669'}}>₹{fmt(sub.values.cd_growth_today||0)}</b></div><div><small>TD Growth Today</small><b style={{display:'block',fontSize:15,color:Number(sub.values.td_growth_today||0)<0?'#dc2626':'#059669'}}>₹{fmt(sub.values.td_growth_today||0)}</b></div></div></div><p>{sub.values.notes||'No additional notes.'}</p>{Object.entries(sub.values.plans||{}).map(([p,plan]:any)=><div key={p}><h3>{p.toUpperCase()} positivity commitment · {plan.date}</h3>{plan.funds.map((f:any,i:number)=><p key={i}>{f.reference} · ₹{fmt(f.amount)} · {f.date}</p>)}</div>)}<div className="grid3">{['sma0','sma1','sma2'].map(p=><p key={p}>{p.toUpperCase()}: {sub.values[p+'_count']} eliminated · ₹{fmt(sub.values[p+'_amount'])}</p>)}</div><div className="grid3">{sanctionSectors.map((s:any)=><p key={s}><b>{sectorLabels[s]} Sanctions today</b>: {fmt(sub.values['sanction_'+s+'_count'])} accts · ₹{fmt(sub.values['sanction_'+s+'_amount'])}</p>)}</div><div className="grid3" style={{marginTop:8}}>{sanctionSectors.map((s:any)=><p key={'lpc_'+s} style={{color:'#0284c7'}}><b>{sectorLabels[s]} LPC Forwarded</b>: {fmt(sub.values['lpc_'+s+'_count']||0)} accts · ₹{fmt(sub.values['lpc_'+s+'_amount']||0)}</p>)}</div>{(()=>{const bFund=(data?.fundingAccounts||[]).filter((a:any)=>a.sol===sol);const bDone=bFund.filter((a:any)=>a.funded);const bAmt=bDone.reduce((acc:number,a:any)=>acc+Number(a.funded_amount||0),0);return <div style={{marginTop:10,fontSize:12,color:'#0369a1',background:'#f0f9ff',padding:'8px 12px',borderRadius:6,border:'1px solid #bae6fd'}}><b>Low Balance Funding (Live Sync)</b>: {bDone.length} of {bFund.length} accounts funded (₹{fmt(bAmt)} mobilized)</div>;})()}{active.map((c:any)=><p key={c.id}>{c.title}: {sub.values['camp_'+c.id]} added today</p>)}</div>}
 {sub&&canReview&&<div className="panel"><h2>{isGm?'General Manager (GM) Executive Direction':'Reply to this entry'}</h2><div className="mention"><Users size={16}/>Branch head selected automatically · {branch?.name} ({sol})</div><label>{isGm?'GM remarks / instructions':'Reviewer remarks'}<textarea value={reply} onChange={e=>setReply(e.target.value)} placeholder={isGm?'Provide executive direction or instructions to the branch head…':'Write your feedback or request a clarification…'}/></label><label>Review outcome<select value={reviewStatus} onChange={e=>setReviewStatus(e.target.value)}>{isGm&&<option value="gm_direction">★ GM Direction / Instruction</option>}<option value="reviewed">Reviewed</option><option value="clarification">Clarification required</option></select></label><p className="muted">The review is saved immediately. Group delivery waits for a configured connection and a verified branch-head mapping.</p><div style={{display:'flex',gap:10,flexWrap:'wrap',alignItems:'center'}}><button disabled={busy} onClick={async()=>{const replyTxt=reply;const revStat=reviewStatus;if(await act({action:'review',sol,text:reply,status:reviewStatus,revision:sub.revision},isGm&&reviewStatus==='gm_direction'?'GM direction saved and queued for group delivery.':'Review saved. The group reply is queued; the administrator can check delivery status.')){setReply('');openReviewImageModal(sol,replyTxt,revStat,data.user.name||data.user.email,data.user.role,new Date().toISOString());}}}><Send size={16}/>{isGm&&reviewStatus==='gm_direction'?'Issue GM Direction':'Save review & queue group reply'}</button><button type="button" className="secondary" onClick={()=>openReviewImageModal(sol,reply,reviewStatus,data.user.name||data.user.email,data.user.role,new Date().toISOString())} style={{display:'inline-flex',alignItems:'center',gap:6,color:'#15803d',borderColor:'#86efac',background:'#f0fdf4',fontWeight:700,padding:'10px 16px',borderRadius:8}}><MessageSquare size={16}/> Post Review to WhatsApp Group (with Image)</button></div></div>}
 <div className="panel"><h2>Review history</h2>{data.reviews.filter((r:any)=>r.sol===sol).map((r:any)=><div className={"review "+(r.role==='srm'||r.role==='gm'||r.status==='srm_direction'||r.status==='gm_direction'?'srm-review-card':'')} key={r.id}><div className="paneltop"><b>{(r.role==='srm'||r.role==='gm')?'★ General Manager (GM)':r.by}</b><div style={{display:'flex',alignItems:'center',gap:8}}><span className={'badge '+((r.status==='srm_direction'||r.status==='gm_direction')?'srm-badge':r.status)}>{(r.status==='srm_direction'||r.status==='gm_direction')?'GM Direction':r.status}</span><button type="button" className="secondary" onClick={()=>openReviewImageModal(sol,r.text,r.status,r.by,r.role,r.at)} style={{display:'inline-flex',alignItems:'center',gap:5,padding:'3px 8px',fontSize:11,fontWeight:700,color:'#15803d',borderColor:'#86efac',background:'#f0fdf4'}} title="Post this review to WhatsApp Group with Performance Scorecard Image"><MessageSquare size={12}/> Post to WhatsApp Group (with Image)</button></div></div><small>{(r.role==='srm'||r.role==='gm')?r.by+' · ':''}Report revision {r.revision} · {r.at}</small><p>{r.text}</p></div>)}{!data.reviews.some((r:any)=>r.sol===sol)&&<p>No reviews yet.</p>}</div></>}</>}
-{tab==='Publish data'&&isAdmin&&<><div className="steps"><span className="on">1 · Download template</span><ChevronRight size={16}/><span>2 · Upload & validate</span><ChevronRight size={16}/><span>3 · Publish & request reports</span></div><div className="panel"><div className="paneltop"><div><h2>Upload the confirmed branch position</h2><p>CSV format · All 56 branches · Monetary values in rupees</p></div><button className="secondary" onClick={template}><Download size={16}/>Download blank template</button></div><div className="uploadzone"><Upload size={30}/><h3>{importName||'Choose your daily data file'}</h3><p>Include account openings, growth, SMA, loan sanctions (Retail, Agri, MSME) and active campaign figures.</p><input aria-label="Upload daily CSV" type="file" accept=".csv,text/csv" onChange={e=>e.target.files?.[0]&&upload(e.target.files[0])}/></div>{rows.length>0&&<div className="alert success"><CheckCircle2 size={18}/>{rows.length} branches validated. No duplicate SOLs or missing required values.</div>}<div className="grid3">{[['Source cutoff','cutoff','date'],['Submission deadline (IST)','deadline','time'],['Growth comparison baseline','baseline','text']].map(([label,k,type])=><label key={k}>{label}<input type={type} value={meta[k]} onChange={e=>setMeta({...meta,[k]:e.target.value})} placeholder={k==='baseline'?'e.g. balance at 31 March 2026':''}/></label>)}</div><label>Funded-account definition from your source<input value={meta.fundedDefinition} onChange={e=>setMeta({...meta,fundedDefinition:e.target.value})} placeholder="Enter the definition used in the official source report"/></label>{data.pub&&<label>Correction reason (required)<input value={meta.reason} onChange={e=>setMeta({...meta,reason:e.target.value})}/></label>}<button disabled={!rows.length||busy} onClick={()=>act({action:'publish',rows,...meta},'Daily position published. Submission request recorded in message queue.')}><Upload size={16}/>{data.pub?'Publish corrected version':'Publish & request submissions'}</button><p className="muted">Publication opens reporting immediately. Re-publication preserves history and does not duplicate the initial group request.</p></div>{rows.length>0&&<div className="panel"><h2>Upload preview</h2><div className="tablewrap"><table><thead><tr><th>SOL</th><th>SB MTD OPENED</th><th>CD MTD OPENED</th><th>SB GROWTH ₹</th><th>CD GROWTH ₹</th><th>RETAIL SANCTIONS ₹</th><th>AGRI SANCTIONS ₹</th><th>MSME SANCTIONS ₹</th></tr></thead><tbody>{rows.slice(0,8).map(r=><tr key={r.sol}><td>{r.sol}</td><td>{r.sb_mtd_opened}</td><td>{r.cd_mtd_opened}</td><td>{r.sb_growth}</td><td>{r.cd_growth}</td><td>{r.sanction_retail_mtd_amount}</td><td>{r.sanction_agri_mtd_amount}</td><td>{r.sanction_msme_mtd_amount}</td></tr>)}</tbody></table></div><p>First 8 of {rows.length} rows shown.</p></div>}</>}
+{tab==='Publish data'&&isAdmin&&<><div className="steps"><span className="on">1 · Download template</span><ChevronRight size={16}/><span>2 · Upload & validate</span><ChevronRight size={16}/><span>3 · Publish & request reports</span></div>
+{data.pub&&<div style={{marginTop:12,marginBottom:16,padding:'14px 18px',background:'#f0fdf4',border:'1.5px solid #86efac',borderRadius:10,display:'flex',justifyContent:'space-between',alignItems:'center',flexWrap:'wrap',gap:12}}>
+  <div>
+    <div style={{display:'flex',alignItems:'center',gap:7,color:'#15803d',fontWeight:800,fontSize:14}}>
+      <Megaphone size={18} color="#15803d"/>
+      <span>Daily Performance Reporting is Open for {date} (v{data.pub.version})</span>
+    </div>
+    <p style={{margin:'4px 0 0',fontSize:12,color:'#166534',lineHeight:1.4}}>
+      Submission deadline: <b>{data.pub.deadline} IST</b> &bull; Baseline: <b>{data.pub.baseline}</b> &bull; Cutoff: <b>{data.pub.cutoff}</b>
+    </p>
+  </div>
+  <button
+    type="button"
+    className="button"
+    onClick={()=>openAnnouncementImageModal(date)}
+    style={{
+      display:'inline-flex',
+      alignItems:'center',
+      gap:8,
+      background:'#15803d',
+      borderColor:'#15803d',
+      color:'#ffffff',
+      padding:'9px 16px',
+      borderRadius:8,
+      fontWeight:700,
+      fontSize:13,
+      cursor:'pointer'
+    }}
+  >
+    <Sparkles size={15}/> View / Share Announcement Image
+  </button>
+</div>}
+<div className="panel"><div className="paneltop"><div><h2>Upload the confirmed branch position</h2><p>CSV format · All 56 branches · Monetary values in rupees</p></div><button className="secondary" onClick={template}><Download size={16}/>Download blank template</button></div><div className="uploadzone"><Upload size={30}/><h3>{importName||'Choose your daily data file'}</h3><p>Include account openings, growth, SMA, loan sanctions (Retail, Agri, MSME) and active campaign figures.</p><input aria-label="Upload daily CSV" type="file" accept=".csv,text/csv" onChange={e=>e.target.files?.[0]&&upload(e.target.files[0])}/></div>{rows.length>0&&<div className="alert success"><CheckCircle2 size={18}/>{rows.length} branches validated. No duplicate SOLs or missing required values.</div>}<div className="grid3">{[['Source cutoff','cutoff','date'],['Submission deadline (IST)','deadline','time'],['Growth comparison baseline','baseline','text']].map(([label,k,type])=><label key={k}>{label}<input type={type} value={meta[k]} onChange={e=>setMeta({...meta,[k]:e.target.value})} placeholder={k==='baseline'?'e.g. balance at 31 March 2026':''}/></label>)}</div><label>Funded-account definition from your source<input value={meta.fundedDefinition} onChange={e=>setMeta({...meta,fundedDefinition:e.target.value})} placeholder="Enter the definition used in the official source report"/></label>{data.pub&&<label>Correction reason (required)<input value={meta.reason} onChange={e=>setMeta({...meta,reason:e.target.value})}/></label>}<button disabled={!rows.length||busy} onClick={async()=>{if(await act({action:'publish',rows,...meta},'Daily position published. Submission request recorded in message queue.')){openAnnouncementImageModal(date);}}}><Upload size={16}/>{data.pub?'Publish corrected version':'Publish & request submissions'}</button><p className="muted">Publication opens reporting immediately. Re-publication preserves history and does not duplicate the initial group request.</p></div>{rows.length>0&&<div className="panel"><h2>Upload preview</h2><div className="tablewrap"><table><thead><tr><th>SOL</th><th>SB MTD OPENED</th><th>CD MTD OPENED</th><th>SB GROWTH ₹</th><th>CD GROWTH ₹</th><th>RETAIL SANCTIONS ₹</th><th>AGRI SANCTIONS ₹</th><th>MSME SANCTIONS ₹</th></tr></thead><tbody>{rows.slice(0,8).map(r=><tr key={r.sol}><td>{r.sol}</td><td>{r.sb_mtd_opened}</td><td>{r.cd_mtd_opened}</td><td>{r.sb_growth}</td><td>{r.cd_growth}</td><td>{r.sanction_retail_mtd_amount}</td><td>{r.sanction_agri_mtd_amount}</td><td>{r.sanction_msme_mtd_amount}</td></tr>)}</tbody></table></div><p>First 8 of {rows.length} rows shown.</p></div>}</>}
 {tab==='Login activity'&&(isAdmin||isGm||data.user.role==='reviewer')&&<>
   <div className="stats">
     <div>
@@ -1257,7 +1472,7 @@ return <div className={"shell role-"+data.user.role}><aside><div className="bran
 {isAdmin&&active.length>0&&<div className="panel"><div className="paneltop"><div><h2>Upload Campaign Targets &amp; Performance</h2><p>Upload targets and CBS performance separately for any active campaign without modifying the daily snapshot CSV.</p></div><div style={{display:'flex',gap:10,alignItems:'center'}}><select value={campUploadCampId||selectedCamp?.id||''} onChange={e=>{setCampUploadCampId(e.target.value);setCampRows([]);setCampFileName('');}} style={{minWidth:200}}>{active.map((c:any)=><option key={c.id} value={c.id}>{c.title}</option>)}</select><button type="button" className="secondary" onClick={()=>{const cId=campUploadCampId||selectedCamp?.id;const c=active.find((x:any)=>x.id===cId)||active[0];if(!c)return;const head='sol,branch_name,target,prior_achievement,mtd_achievement\n';const rows=data.branches.map((b:any)=>`${b.sol},"${(b.name||'').replace(/"/g,'""')}",,,`).join('\n');download(`IOB_campaign_${c.title.replace(/[^a-zA-Z0-9_-]/g,'_')}_targets.csv`,head+rows);}}><Download size={16}/> Download Template</button></div></div><div className="uploadzone"><Upload size={30}/><h3>{campFileName||`Choose CSV file for ${active.find((x:any)=>x.id===(campUploadCampId||selectedCamp?.id))?.title||'selected campaign'}`}</h3><p>Columns: sol (or branch_code), target (assigned target), prior_achievement (or prior), mtd_achievement (or mtd). All 56 branches.</p><input aria-label="Upload campaign targets CSV" type="file" accept=".csv,text/csv" onChange={async e=>{const file=e.target.files?.[0];if(!file)return;try{const text=await file.text();const parsed=parseCampaignCSV(text);const validated=validateCampaignData(parsed,data.branches);setCampRows(validated);setCampFileName(file.name);setError('');}catch(err:any){setCampRows([]);setError(err.message);}}}/></div>{campRows.length>0&&<><div className="alert success"><CheckCircle2 size={18}/>{campRows.length} branch targets &amp; performance figures validated and ready to save.</div><div className="tablewrap" style={{marginBottom:14}}><table><thead><tr><th>SOL</th><th>BRANCH</th><th>TARGET</th><th>PRIOR ACHIEVED</th><th>MTD ACHIEVED</th></tr></thead><tbody>{campRows.slice(0,8).map((r:any)=><tr key={r.sol}><td>{r.sol}</td><td>{data.branches.find((b:any)=>b.sol===r.sol)?.name}</td><td><b>{fmt(r.target)}</b></td><td>{fmt(r.prior)}</td><td>{fmt(r.mtd)}</td></tr>)}</tbody></table>{campRows.length>8&&<p style={{fontSize:12,color:'#64748b'}}>First 8 of {campRows.length} branch rows shown.</p>}</div><button type="button" disabled={busy} onClick={async()=>{const cId=campUploadCampId||selectedCamp?.id;const ok=await act({action:'upload-campaign-data',campaign_id:cId,rows:campRows},'Campaign targets and performance updated!');if(ok){setCampRows([]);setCampFileName('');}}}><Upload size={16}/> Save Targets &amp; Performance ({campRows.length} Branches)</button></>}</div>}
 {isAdmin&&<div className="panel"><h2>Add a campaign</h2><p>Campaigns apply to all 56 branches. Dates are inclusive; overlapping campaigns retain separate totals.</p><div className="grid3">{[['Title','title','text'],['Start date','start','date'],['End date','end','date']].map(([l,k,t])=><label key={k}>{l}<input type={t} value={(campaign as any)[k]} onChange={e=>setCampaign({...campaign,[k]:e.target.value})}/></label>)}</div><button disabled={busy} onClick={()=>act({action:'campaign',...campaign},'Campaign created. Download a new upload template to include its columns.')}><Plus size={16}/>Create campaign</button></div>}<div className="campaigns">{data.campaigns.map((c:any)=>{const isActive=c.start<=date&&c.end>=date;const cToday=(data?.branches||[]).reduce((acc:number,b:any)=>{const s=data?.subs?.find((x:any)=>x.sol===b.sol);return acc+Number(s?.values?.['camp_'+c.id]||0);},0);const cMtd=(data?.branches||[]).reduce((acc:number,b:any)=>{const sn=data?.pub?.rows?.find((x:any)=>x.sol===b.sol);return acc+Number(sn?.['camp_'+c.id+'_mtd']||0);},0);const cCum=cMtd+cToday;const cCount=(data?.branches||[]).filter((b:any)=>{const s=data?.subs?.find((x:any)=>x.sol===b.sol);return Number(s?.values?.['camp_'+c.id]||0)>0;}).length;return <div className="panel" key={c.id}><Flag size={24}/><h2>{c.title}</h2><p>{c.start} to {c.end}</p><span className="badge">{isActive?'Active':'Outside reporting period'}</span><small>Import ID: {c.id}</small>{isActive&&<div style={{marginTop:14,paddingTop:12,borderTop:'1px solid #f1f5f9',display:'flex',justifyContent:'space-between',alignItems:'center',flexWrap:'wrap',gap:10}}><div style={{display:'flex',gap:12,fontSize:12,flexWrap:'wrap'}}><span style={{color:'#16a34a',fontWeight:700}}>★ Today: +{fmt(cToday)}</span><span style={{color:'#475569'}}>MTD: {fmt(cMtd)}</span><span style={{color:'#0f172a',fontWeight:700}}>Total: {fmt(cCum)}</span><span style={{color:'#0284c7'}}>({cCount}/56 branches active)</span></div><button type="button" className="button" style={{background:'#25D366',color:'#fff',border:'none',padding:'6px 12px',borderRadius:6,fontSize:12,fontWeight:700,display:'inline-flex',alignItems:'center',gap:6,cursor:'pointer'}} onClick={()=>{setSelectedCampId(c.id);setCampSeqIdx(0);setShowCampModal(true);}}><MessageSquare size={13}/> WhatsApp Dispatch</button></div>}</div>;})}</div></>}
 {tab==='Branch directory'&&isAdmin&&<><div className="panel"><div className="paneltop"><div><h2>Bulk upload branch directory & access</h2><p>Download the 56-branch CSV template, fill in head name, mobile, and email, then upload once to update both WhatsApp mappings and portal access.</p></div><button className="secondary" onClick={directoryTemplate}><Download size={16}/>Download 56-branch template</button></div><div className="uploadzone"><Upload size={30}/><h3>{dirFileName||'Choose branch directory CSV'}</h3><p>Columns: sol (use 3933 for Regional Office GM/Reviewers), head_name, phone (10 digits or 91+10), email (optional), role (branch/reviewer/srm). Blank rows are skipped.</p><input aria-label="Upload branch directory CSV" type="file" accept=".csv,text/csv" onChange={e=>e.target.files?.[0]&&uploadDirectory(e.target.files[0])}/></div>{dirRows.length>0&&<><div className="alert success"><CheckCircle2 size={18}/>{dirRows.length} directory entries validated and ready to apply.</div><div className="tablewrap" style={{marginBottom:14}}><table><thead><tr><th>SOL</th><th>HEAD NAME</th><th>MOBILE</th><th>EMAIL</th><th>ROLE</th></tr></thead><tbody>{dirRows.slice(0,8).map((r:any)=><tr key={r.phone}><td>{r.sol||'—'}</td><td>{r.name||'—'}</td><td>{r.phone}</td><td>{r.email||'—'}</td><td>{r.role}</td></tr>)}</tbody></table>{dirRows.length>8&&<p>First 8 of {dirRows.length} rows shown.</p>}</div></>} <button disabled={!dirRows.length||busy} onClick={async()=>{if(await act({action:'upload-directory',rows:dirRows},'Branch directory and access assignments updated.')){setDirRows([]);setDirFileName('');}}}><Upload size={16}/>Upload & apply directory{dirRows.length?' ('+dirRows.length+')':''}</button></div><div className="panel"><h2>Branch-head WhatsApp mapping</h2><p>Numbers are not inferred. Save the correct current head for each branch.</p><div className="grid3"><label>Branch<select value={contact.sol} onChange={e=>setContact({...contact,sol:e.target.value})}>{data.branches.map((b:any)=><option key={b.sol} value={b.sol}>{b.sol} · {b.name}</option>)}</select></label><label>Branch head name<input value={contact.name} onChange={e=>setContact({...contact,name:e.target.value})}/></label><label>WhatsApp number (91 + 10 digits)<input value={contact.phone} onChange={e=>setContact({...contact,phone:e.target.value})}/></label></div><button disabled={busy} onClick={()=>act({action:'contact',...contact},'Branch-head mapping saved.')}>Save mapping</button><div className="tablewrap"><table><thead><tr><th>BRANCH</th><th>HEAD</th><th>MOBILE</th></tr></thead><tbody>{data.contacts.map((c:any)=><tr key={c.sol}><td>{c.sol} · {data.branches.find((b:any)=>b.sol===c.sol)?.name}</td><td>{c.name}</td><td>{c.phone}</td></tr>)}</tbody></table></div></div><div className="panel"><h2>Portal access assignments</h2><p>Register each mobile number with the officer’s email and role. On first login with their mobile number, that person sets their own 4-digit PIN.</p><div className="grid3"><label>Mobile number<input type="tel" inputMode="numeric" value={grant.phone} onChange={e=>setGrant({...grant,phone:e.target.value})} placeholder="10-digit mobile number"/></label><label>Officer email (optional)<input type="email" value={grant.email} onChange={e=>setGrant({...grant,email:e.target.value})}/></label><label>Role<select value={grant.role} onChange={e=>setGrant({...grant,role:e.target.value})}><option value="branch">Branch head</option><option value="reviewer">Regional reviewer</option><option value="srm">General Manager (GM)</option><option value="none">Revoke access</option></select></label>{grant.role==='branch'?<label>Branch<select value={grant.sol} onChange={e=>setGrant({...grant,sol:e.target.value})}>{data.branches.map((b:any)=><option key={b.sol} value={b.sol}>{b.sol} · {b.name}</option>)}</select></label>:(grant.role==='reviewer'||grant.role==='srm'||grant.role==='gm')&&<label>Attached Office<input value="3933 · Regional Office" disabled/></label>}</div><button disabled={busy} onClick={()=>act({action:'grant',...grant,sol:grant.role==='branch'?grant.sol:(grant.role==='reviewer'||grant.role==='srm'||grant.role==='gm')?'3933':null},'Role assignment saved.')}>Save assignment</button>{data.grants.map((g:any)=><div className="accountrow" key={g.phone}><div><b>{g.phone?.slice(2)}</b><small>{[g.name,g.email].filter(Boolean).join(' · ')||'No name/email'} · {g.role==='srm'||g.role==='gm'?'General Manager (GM)':g.role} {g.sol==='3933'?'3933 · Regional Office':g.sol||''}</small></div>{g.role!=='admin'&&<button className="secondary" disabled={busy} onClick={()=>{if(window.confirm('Reset this user’s PIN and sign them out?'))act({action:'reset-pin',phone:g.phone},'PIN reset. The user will set a new PIN on their next login.');}}>Reset PIN</button>}</div>)}</div></>}
-{tab==='Message queue'&&isAdmin&&<><div className="alert neutral"><MessageSquare size={22}/><div><b>Group delivery requires a configured WhatsApp connection.</b><br/>A queued or blocked message has not been sent. Use <b>Share via WhatsApp</b> or <b>Copy message</b> below to share directly to your group or branch head.</div></div><div className="panel"><h2>Outbound messages</h2>{data.jobs.length?data.jobs.slice().reverse().map((j:any)=>{const headContact=j.sol?data.contacts.find((c:any)=>c.sol===j.sol):null;return <div className="job" key={j.key}><div className="paneltop"><b>{j.type} · {j.date}{j.sol?' · '+j.sol:''}</b><span className={'badge '+j.status}>{j.status}</span></div><pre>{j.text}</pre>{j.error&&<p className="negative">{j.error}</p>}{j.messageId&&<small>Message reference: {j.messageId}</small>}<div style={{display:'flex',flexWrap:'wrap',gap:10,marginTop:10}}><a className="button" style={{display:'inline-flex',alignItems:'center',gap:8,background:'#25D366',color:'#fff',padding:'10px 16px',borderRadius:8,fontWeight:600,textDecoration:'none',fontSize:13}} href={'https://wa.me/?text='+encodeURIComponent(j.text)} target="_blank" rel="noopener noreferrer"><Send size={15}/>Share via WhatsApp</a>{headContact?.phone&&<a className="secondary" style={{display:'inline-flex',alignItems:'center',gap:8,padding:'10px 14px',borderRadius:8,fontWeight:600,textDecoration:'none'}} href={'https://wa.me/'+headContact.phone+'?text='+encodeURIComponent(j.text)} target="_blank" rel="noopener noreferrer"><MessageSquare size={15}/>Message {headContact.name}</a>}<button type="button" className="secondary" onClick={async()=>{await navigator.clipboard.writeText(j.text);setNotice('Message copied to clipboard.');}}>Copy message</button>{['pending','blocked'].includes(j.status)&&<button className="secondary" disabled={busy} onClick={()=>act({action:'retry',key:j.key},'Connection checked. See the updated message status.')}><RefreshCw size={15}/>Retry connection</button>}</div></div>;}):<div className="empty"><MessageSquare size={32}/><h3>No messages yet</h3><p>Publication requests and reviewer replies will appear here.</p></div>}</div></>}
+{tab==='Message queue'&&isAdmin&&<><div className="alert neutral"><MessageSquare size={22}/><div><b>Group delivery requires a configured WhatsApp connection.</b><br/>A queued or blocked message has not been sent. Use <b>Share via WhatsApp</b> or <b>Copy message</b> below to share directly to your group or branch head.</div></div><div className="panel"><h2>Outbound messages</h2>{data.jobs.length?data.jobs.slice().reverse().map((j:any)=>{const headContact=j.sol?data.contacts.find((c:any)=>c.sol===j.sol):null;return <div className="job" key={j.key}><div className="paneltop"><b>{j.type} · {j.date}{j.sol?' · '+j.sol:''}</b><span className={'badge '+j.status}>{j.status}</span></div><pre>{j.text}</pre>{j.error&&<p className="negative">{j.error}</p>}{j.messageId&&<small>Message reference: {j.messageId}</small>}<div style={{display:'flex',flexWrap:'wrap',gap:10,marginTop:10}}>{j.type==='Submission request'&&<button type="button" className="secondary" onClick={()=>openAnnouncementImageModal(j.date)} style={{display:'inline-flex',alignItems:'center',gap:6,padding:'10px 14px',borderRadius:8,fontWeight:700,color:'#15803d',borderColor:'#86efac',background:'#f0fdf4'}}><Sparkles size={15}/> Share Announcement Image</button>}<a className="button" style={{display:'inline-flex',alignItems:'center',gap:8,background:'#25D366',color:'#fff',padding:'10px 16px',borderRadius:8,fontWeight:600,textDecoration:'none',fontSize:13}} href={'https://wa.me/?text='+encodeURIComponent(j.text)} target="_blank" rel="noopener noreferrer"><Send size={15}/>Share via WhatsApp</a>{headContact?.phone&&<a className="secondary" style={{display:'inline-flex',alignItems:'center',gap:8,padding:'10px 14px',borderRadius:8,fontWeight:600,textDecoration:'none'}} href={'https://wa.me/'+headContact.phone+'?text='+encodeURIComponent(j.text)} target="_blank" rel="noopener noreferrer"><MessageSquare size={15}/>Message {headContact.name}</a>}<button type="button" className="secondary" onClick={async()=>{await navigator.clipboard.writeText(j.text);setNotice('Message copied to clipboard.');}}>Copy message</button>{['pending','blocked'].includes(j.status)&&<button className="secondary" disabled={busy} onClick={()=>act({action:'retry',key:j.key},'Connection checked. See the updated message status.')}><RefreshCw size={15}/>Retry connection</button>}</div></div>;}):<div className="empty"><MessageSquare size={32}/><h3>No messages yet</h3><p>Publication requests and reviewer replies will appear here.</p></div>}</div></>}
 {showCampModal && selectedCamp && (
   <div
     style={{
@@ -2749,6 +2964,262 @@ return <div className={"shell role-"+data.user.role}><aside><div className="bran
             </button>
           </div>
         </div>
+      </div>
+    </div>
+  </div>
+)}
+
+{announcementModal && (
+  <div
+    style={{
+      position: 'fixed',
+      top: 0,
+      left: 0,
+      right: 0,
+      bottom: 0,
+      background: 'rgba(15, 23, 42, 0.75)',
+      backdropFilter: 'blur(4px)',
+      display: 'flex',
+      alignItems: 'center',
+      justifyContent: 'center',
+      zIndex: 99999,
+      padding: 16,
+    }}
+    onClick={() => setAnnouncementModal(null)}
+  >
+    <div
+      style={{
+        background: '#ffffff',
+        borderRadius: 16,
+        width: '100%',
+        maxWidth: 960,
+        maxHeight: '94vh',
+        display: 'flex',
+        flexDirection: 'column',
+        boxShadow: '0 25px 50px -12px rgba(0, 0, 0, 0.35)',
+        border: '1px solid #cbd5e1',
+        overflow: 'hidden',
+      }}
+      onClick={(e) => e.stopPropagation()}
+    >
+      {/* Header */}
+      <div
+        style={{
+          background: 'linear-gradient(135deg, #002855 0%, #0a3d8f 100%)',
+          color: '#fff',
+          padding: '16px 22px',
+          display: 'flex',
+          justifyContent: 'space-between',
+          alignItems: 'center',
+          borderBottom: '3px solid #f59e0b',
+        }}
+      >
+        <div style={{ display: 'flex', alignItems: 'center', gap: 12 }}>
+          <span style={{ fontSize: 24 }}>📢</span>
+          <div>
+            <h3 style={{ margin: 0, fontSize: 16, fontWeight: 800 }}>
+              Daily Reporting Open · WhatsApp Announcement Card
+            </h3>
+            <p style={{ margin: '2px 0 0', fontSize: 12, color: '#bae6fd' }}>
+              Reporting Date: {announcementModal.date} · High-Impact Mobile Poster for WhatsApp Groups &amp; Status
+            </p>
+          </div>
+        </div>
+        <button
+          type="button"
+          onClick={() => setAnnouncementModal(null)}
+          style={{ background: 'transparent', border: 'none', color: '#fff', cursor: 'pointer', padding: 6, display: 'inline-flex', alignItems: 'center' }}
+          title="Close"
+        >
+          <X size={20} />
+        </button>
+      </div>
+
+      {/* Body: Split 2 columns on desktop, stacked on mobile */}
+      <div
+        style={{
+          display: 'grid',
+          gridTemplateColumns: 'repeat(auto-fit, minmax(320px, 1fr))',
+          gap: 20,
+          padding: 20,
+          overflowY: 'auto',
+          flex: 1,
+          background: '#f8fafc',
+        }}
+      >
+        {/* Left Column: Image Preview */}
+        <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center' }}>
+          <div style={{ fontSize: 12, fontWeight: 700, color: '#475569', marginBottom: 8, display: 'flex', alignItems: 'center', gap: 6, width: '100%', justifyContent: 'space-between' }}>
+            <span>Mobile Form Factor Preview</span>
+            <span style={{ fontSize: 11, background: '#eff6ff', color: '#1d4ed8', padding: '2px 8px', borderRadius: 10, fontWeight: 700 }}>
+              720 × 990 HD
+            </span>
+          </div>
+
+          {announcementModal.loading ? (
+            <div style={{ height: 420, width: '100%', maxWidth: 380, display: 'flex', alignItems: 'center', justifyContent: 'center', background: '#fff', borderRadius: 12, border: '1px solid #e2e8f0' }}>
+              <p style={{ color: '#64748b', fontSize: 13, fontWeight: 600 }}>Rendering announcement graphic…</p>
+            </div>
+          ) : announcementModal.dataUrl ? (
+            <div style={{ position: 'relative', width: '100%', maxWidth: 380, background: '#fff', borderRadius: 12, padding: 6, boxShadow: '0 4px 12px rgba(0,0,0,0.08)', border: '1px solid #cbd5e1' }}>
+              <img
+                src={announcementModal.dataUrl}
+                alt="Daily Reporting Open Announcement"
+                style={{ width: '100%', height: 'auto', maxHeight: '60vh', objectFit: 'contain', borderRadius: 8, display: 'block' }}
+              />
+            </div>
+          ) : (
+            <div style={{ padding: 20, color: '#dc2626' }}>{announcementModal.error || 'Failed to render image'}</div>
+          )}
+        </div>
+
+        {/* Right Column: Sharing & Text */}
+        <div style={{ display: 'flex', flexDirection: 'column', gap: 14 }}>
+          {/* Quick WhatsApp Action Buttons */}
+          <div style={{ background: '#ffffff', padding: 16, borderRadius: 12, border: '1px solid #e2e8f0', display: 'flex', flexDirection: 'column', gap: 10 }}>
+            <span style={{ fontSize: 12, fontWeight: 800, color: '#0f172a', textTransform: 'uppercase', letterSpacing: '0.5px' }}>
+              WhatsApp Sharing Options
+            </span>
+
+            {/* 1. Primary Share Native Button */}
+            <button
+              type="button"
+              className="button"
+              onClick={() => handleShareAnnouncement(announcementModal)}
+              style={{
+                width: '100%',
+                padding: '11px 16px',
+                fontSize: 13,
+                fontWeight: 800,
+                display: 'inline-flex',
+                alignItems: 'center',
+                justifyContent: 'center',
+                gap: 8,
+                background: '#25D366',
+                borderColor: '#25D366',
+                color: '#ffffff',
+                borderRadius: 8,
+                cursor: 'pointer',
+                boxShadow: '0 2px 6px rgba(37, 211, 102, 0.3)',
+              }}
+              title="Shares image and announcement text directly to WhatsApp"
+            >
+              <Send size={16} /> ⚡ Share Image &amp; Announcement to WhatsApp
+            </button>
+
+            {/* 2. Utility Actions: Copy Image & Download Image */}
+            <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 8 }}>
+              <button
+                type="button"
+                className="secondary"
+                onClick={async () => {
+                  try {
+                    if (typeof ClipboardItem !== 'undefined' && navigator.clipboard && navigator.clipboard.write && announcementModal.blob) {
+                      await navigator.clipboard.write([new ClipboardItem({ 'image/png': announcementModal.blob })]);
+                      setAnnImgCopied(true);
+                      setTimeout(() => setAnnImgCopied(false), 2500);
+                    }
+                  } catch (e: any) {
+                    alert('Clipboard write not supported or blocked in this browser.');
+                  }
+                }}
+                style={{
+                  padding: '8px 10px',
+                  fontSize: 12,
+                  fontWeight: 700,
+                  display: 'inline-flex',
+                  alignItems: 'center',
+                  justifyContent: 'center',
+                  gap: 6,
+                  color: annImgCopied ? '#059669' : '#0a3272',
+                  borderColor: annImgCopied ? '#a7f3d0' : '#cbd5e1',
+                  background: annImgCopied ? '#ecfdf5' : '#ffffff',
+                }}
+              >
+                {annImgCopied ? <CheckCircle2 size={13} color="#059669" /> : <Copy size={13} />}
+                {annImgCopied ? 'Image Copied!' : 'Copy Image'}
+              </button>
+
+              <button
+                type="button"
+                className="secondary"
+                onClick={() => {
+                  if (announcementModal.blob) {
+                    const url = URL.createObjectURL(announcementModal.blob);
+                    const a = document.createElement('a');
+                    a.href = url;
+                    a.download = `IOB_Reporting_Open_${announcementModal.date}.png`;
+                    a.click();
+                    URL.revokeObjectURL(url);
+                  }
+                }}
+                style={{
+                  padding: '8px 10px',
+                  fontSize: 12,
+                  fontWeight: 700,
+                  display: 'inline-flex',
+                  alignItems: 'center',
+                  justifyContent: 'center',
+                  gap: 6,
+                  color: '#334155',
+                }}
+              >
+                <Download size={13} /> Download PNG
+              </button>
+            </div>
+          </div>
+
+          {/* Accompanying WhatsApp Text */}
+          <div style={{ background: '#ffffff', padding: 16, borderRadius: 12, border: '1px solid #e2e8f0', display: 'flex', flexDirection: 'column', gap: 8 }}>
+            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+              <span style={{ fontSize: 12, fontWeight: 700, color: '#334155' }}>Official Group WhatsApp Text</span>
+              <button
+                type="button"
+                className="secondary"
+                onClick={async () => {
+                  if (announcementModal.textSummary) {
+                    await navigator.clipboard.writeText(announcementModal.textSummary);
+                    setAnnTxtCopied(true);
+                    setTimeout(() => setAnnTxtCopied(false), 2000);
+                  }
+                }}
+                style={{ fontSize: 11, padding: '3px 8px' }}
+              >
+                {annTxtCopied ? <CheckCircle2 size={12} color="#059669" /> : <Copy size={12} />}
+                {annTxtCopied ? 'Copied' : 'Copy Text'}
+              </button>
+            </div>
+            <textarea
+              readOnly
+              value={announcementModal.textSummary || ''}
+              rows={9}
+              style={{
+                width: '100%',
+                fontSize: 11,
+                fontFamily: 'monospace',
+                padding: 8,
+                border: '1px solid #cbd5e1',
+                borderRadius: 6,
+                background: '#f8fafc',
+                color: '#334155',
+                lineHeight: 1.4,
+                resize: 'vertical',
+              }}
+            />
+          </div>
+        </div>
+      </div>
+
+      {/* Footer */}
+      <div style={{ padding: '12px 22px', borderTop: '1px solid #e2e8f0', background: '#f8fafc', display: 'flex', justifyContent: 'flex-end', alignItems: 'center' }}>
+        <button
+          type="button"
+          className="button"
+          onClick={() => setAnnouncementModal(null)}
+          style={{ padding: '8px 22px', fontSize: 13 }}
+        >
+          Done
+        </button>
       </div>
     </div>
   </div>

@@ -16,6 +16,7 @@ import {
 } from './shared/portal-core.js';
 import * as model from './shared/model.mjs';
 import { renderScorecardSvg } from './scorecard-svg.js';
+import { renderAnnouncementSvg } from './announcement-svg.js';
 
 initializeApp();
 const db = getFirestore();
@@ -107,6 +108,27 @@ app.get('/api/card', async (req, res) => {
   try {
     const sol = typeof req.query.sol === 'string' ? req.query.sol : '';
     const date = typeof req.query.date === 'string' ? req.query.date : '';
+    const type = typeof req.query.type === 'string' ? req.query.type : '';
+
+    if (type === 'announcement' || (!sol && date)) {
+      const pub = await store.get('pub:' + date);
+      const svg = renderAnnouncementSvg({
+        date,
+        deadline: pub?.deadline || (typeof req.query.deadline === 'string' ? req.query.deadline : '17:00'),
+        cutoff: pub?.cutoff || (typeof req.query.cutoff === 'string' ? req.query.cutoff : 'yesterday'),
+        baseline: pub?.baseline || (typeof req.query.baseline === 'string' ? req.query.baseline : 'Prior month-end position'),
+        fundedDefinition: pub?.fundedDefinition || (typeof req.query.funded === 'string' ? req.query.funded : 'Official definition'),
+        version: pub?.version || 1,
+        totalBranches: branches.length,
+        reason: pub?.reason || undefined,
+        expectedOrigin: getExpectedOrigin(req),
+      });
+      res.set('Content-Type', 'image/svg+xml; charset=utf-8');
+      res.set('Cache-Control', 'public, max-age=120');
+      res.send(svg);
+      return;
+    }
+
     if (!sol || !date) {
       res.status(400).send('sol and date query parameters required');
       return;
