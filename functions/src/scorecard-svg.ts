@@ -50,17 +50,59 @@ export function renderScorecardSvg(opts: {
   const isGm = review?.status === 'gm_direction' || review?.status === 'srm_direction';
   const isClarification = review?.status === 'clarification';
 
+  const reviewerRole = isGm
+    ? 'General Manager (GM)'
+    : review?.role === 'admin'
+    ? 'Regional Administrator'
+    : review?.role === 'reviewer'
+    ? 'Regional Reviewer'
+    : (review?.role || 'Regional Reviewer');
+
+  const reviewerName = escapeXml(
+    review?.by
+      ? (review.by.includes('@') ? review.by.split('@')[0].toUpperCase() : review.by)
+      : 'Regional Office'
+  );
+
+  let revDateStr = date;
+  let revTimeStr = '';
+  if (review?.at) {
+    try {
+      const dObj = new Date(review.at);
+      revDateStr = dObj.toLocaleDateString('en-GB', { day: '2-digit', month: 'short', year: 'numeric', timeZone: 'Asia/Kolkata' });
+      revTimeStr = dObj.toLocaleTimeString('en-IN', { hour: '2-digit', minute: '2-digit', timeZone: 'Asia/Kolkata' });
+    } catch {}
+  }
+  if (!revTimeStr) {
+    revTimeStr = new Date().toLocaleTimeString('en-IN', { hour: '2-digit', minute: '2-digit', timeZone: 'Asia/Kolkata' });
+  }
+
   const revBadgeText = isGm ? '★ GM EXECUTIVE DIRECTION' : isClarification ? '⚠️ CLARIFICATION REQUIRED' : '✓ REVIEWER FEEDBACK';
   const revBadgeBg = isGm ? '#7e22ce' : isClarification ? '#b45309' : '#15803d';
   const revCardBg = isGm ? '#faf5ff' : isClarification ? '#fffbeb' : '#f0fdf4';
   const revBorder = isGm ? '#c084fc' : isClarification ? '#fde047' : '#86efac';
 
-  const baseH = 880;
-  const extraH = hasReview ? 140 : 0;
-  const H = baseH + extraH;
+  // Mobile layout dimensions (720px wide)
+  const W = 720;
+  const pad = 24;
+  const contentW = W - pad * 2; // 672px
+  const col2W = (contentW - 14) / 2; // 329px
+
+  let reviewCardH = 0;
+  if (hasReview) {
+    const estLines = Math.max(1, Math.ceil(revText.length / 48));
+    reviewCardH = 92 + estLines * 22;
+  }
+
+  let H = 135; // Header
+  H += 105; // Branch identity card
+  if (hasReview) H += reviewCardH + 16;
+  H += 26 + 155 + 12 + 125; // Section 1: Deposits
+  H += 26 + 155 + 12 + 105; // Section 2: Lending & Recovery
+  H += 55; // Footer
 
   return `<?xml version="1.0" encoding="UTF-8"?>
-<svg xmlns="http://www.w3.org/2000/svg" width="900" height="${H}" viewBox="0 0 900 ${H}">
+<svg xmlns="http://www.w3.org/2000/svg" width="${W}" height="${H}" viewBox="0 0 ${W} ${H}">
   <defs>
     <linearGradient id="headerGrad" x1="0%" y1="0%" x2="100%" y2="100%">
       <stop offset="0%" stop-color="#0a3272"/>
@@ -73,126 +115,150 @@ export function renderScorecardSvg(opts: {
   </defs>
 
   <!-- Background -->
-  <rect width="900" height="${H}" fill="#f8fafc" rx="12"/>
-  <rect width="900" height="${H}" fill="none" stroke="#e2e8f0" stroke-width="1.5" rx="12"/>
+  <rect width="${W}" height="${H}" fill="#f8fafc" rx="12"/>
+  <rect width="${W}" height="${H}" fill="none" stroke="#cbd5e1" stroke-width="1.5" rx="12"/>
 
-  <!-- Top Banner -->
-  <rect width="900" height="110" fill="url(#headerGrad)" rx="12"/>
-  <rect y="98" width="900" height="12" fill="url(#headerGrad)"/>
+  <!-- Top Banner (IOB Navy Gradient) -->
+  <rect width="${W}" height="118" fill="url(#headerGrad)" rx="12"/>
+  <rect y="106" width="${W}" height="12" fill="url(#headerGrad)"/>
 
   <!-- Header Typography -->
-  <text x="32" y="42" fill="#ffffff" font-family="-apple-system, sans-serif" font-size="22" font-weight="800">INDIAN OVERSEAS BANK</text>
-  <text x="32" y="66" fill="#93c5fd" font-family="-apple-system, sans-serif" font-size="12" font-weight="700" letter-spacing="0.5">DINDIGUL REGION • DAILY PERFORMANCE SCORECARD</text>
-  <text x="32" y="86" fill="#cbd5e1" font-family="-apple-system, sans-serif" font-size="11" font-weight="500">OFFICIAL REGIONAL REVIEW &amp; SUBMISSION REPORT</text>
+  <text x="${pad}" y="38" fill="#ffffff" font-family="-apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif" font-size="21" font-weight="800">INDIAN OVERSEAS BANK</text>
+  <text x="${pad}" y="56" fill="#93c5fd" font-family="-apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif" font-size="11" font-weight="700" letter-spacing="0.5">DINDIGUL REGION • DAILY PERFORMANCE SCORECARD</text>
 
   <!-- Date Pill (Top Right) -->
-  <rect x="680" y="28" width="188" height="52" rx="8" fill="#ffffff" fill-opacity="0.15" stroke="#ffffff" stroke-opacity="0.3"/>
-  <text x="700" y="50" fill="#ffffff" font-family="-apple-system, sans-serif" font-size="14" font-weight="800">📅 ${escapeXml(date)}</text>
-  <text x="700" y="68" fill="#bfdbfe" font-family="-apple-system, sans-serif" font-size="11" font-weight="600">REPORTING DATE (IST)</text>
+  <rect x="${W - pad - 160}" y="20" width="160" height="46" rx="8" fill="#ffffff" fill-opacity="0.16" stroke="#ffffff" stroke-opacity="0.35"/>
+  <text x="${W - pad - 148}" y="40" fill="#ffffff" font-family="-apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif" font-size="13" font-weight="800">📅 ${escapeXml(date)}</text>
+  <text x="${W - pad - 148}" y="56" fill="#bfdbfe" font-family="-apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif" font-size="10" font-weight="600">REPORTING DATE (IST)</text>
+
+  <!-- Subheader Mobile Mode Bar -->
+  <rect y="88" width="${W}" height="30" fill="#000000" fill-opacity="0.18"/>
+  <text x="${pad}" y="107" fill="#e0f2fe" font-family="-apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif" font-size="11" font-weight="600">📱 OFFICIAL REGIONAL REVIEW · MOBILE FORMAT FOR WHATSAPP</text>
 
   <!-- Branch Identity Card -->
-  <g transform="translate(32, 126)">
-    <rect width="836" height="84" rx="10" fill="#ffffff" stroke="#e2e8f0" stroke-width="1" filter="url(#cardShadow)"/>
-    <text x="24" y="34" fill="#0f172a" font-family="-apple-system, sans-serif" font-size="20" font-weight="800">${escapeXml(branchName.toUpperCase())}</text>
-    <rect x="${Math.min(24 + branchName.length * 13, 560)}" y="16" width="90" height="24" rx="6" fill="#eff6ff" stroke="#bfdbfe"/>
-    <text x="${Math.min(24 + branchName.length * 13 + 12, 572)}" y="32" fill="#1d4ed8" font-family="-apple-system, sans-serif" font-size="12" font-weight="800">SOL ${escapeXml(sol)}</text>
-    <text x="24" y="64" fill="#475569" font-family="-apple-system, sans-serif" font-size="12" font-weight="600">Branch Head: ${escapeXml(headName)} • Mobile: <tspan fill="#047857" font-weight="700">${escapeXml(headPhone)}</tspan></text>
-    <text x="812" y="36" text-anchor="end" fill="#059669" font-family="-apple-system, sans-serif" font-size="12" font-weight="700">Revision ${sub?.revision || 1} • Submitted</text>
+  <g transform="translate(${pad}, 132)">
+    <rect width="${contentW}" height="92" rx="10" fill="#ffffff" stroke="#e2e8f0" stroke-width="1" filter="url(#cardShadow)"/>
+    <text x="16" y="32" fill="#0f172a" font-family="-apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif" font-size="20" font-weight="800">${escapeXml(branchName.toUpperCase())}</text>
+    <rect x="${Math.min(16 + branchName.length * 12 + 10, contentW - 95)}" y="14" width="85" height="24" rx="6" fill="#eff6ff" stroke="#bfdbfe"/>
+    <text x="${Math.min(16 + branchName.length * 12 + 20, contentW - 85)}" y="30" fill="#1d4ed8" font-family="-apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif" font-size="11" font-weight="800">SOL ${escapeXml(sol)}</text>
+    <text x="16" y="58" fill="#334155" font-family="-apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif" font-size="12" font-weight="600">👤 Branch Head: ${escapeXml(headName)}</text>
+    <text x="16" y="76" fill="#047857" font-family="-apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif" font-size="12" font-weight="700">📱 ${escapeXml(headPhone)}</text>
+    <text x="${contentW - 16}" y="58" text-anchor="end" fill="#059669" font-family="-apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif" font-size="11" font-weight="700">Revision ${sub?.revision || 1} • Submitted</text>
+    <text x="${contentW - 16}" y="76" text-anchor="end" fill="#64748b" font-family="-apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif" font-size="11">Official Report</text>
   </g>
 
-  <!-- Section 1 Title: Deposits -->
-  <text x="32" y="240" fill="#1e293b" font-family="-apple-system, sans-serif" font-size="13" font-weight="800">01 · DEPOSIT MOBILIZATION TODAY (SB, CD, TD SEPARATE)</text>
+  ${(() => {
+    let y = 132 + 92 + 14;
+    let reviewSvg = '';
+    if (hasReview) {
+      reviewSvg = `
+  <!-- Reviewer Feedback / GM Direction Card (Placed at TOP) -->
+  <g transform="translate(${pad}, ${y})">
+    <rect width="${contentW}" height="${reviewCardH}" rx="10" fill="${revCardBg}" stroke="${revBorder}" stroke-width="2" filter="url(#cardShadow)"/>
+    <rect x="14" y="12" width="${revBadgeText.length * 8 + 20}" height="22" rx="6" fill="${revBadgeBg}"/>
+    <text x="24" y="27" fill="#ffffff" font-family="-apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif" font-size="11" font-weight="800">${revBadgeText}</text>
+    <text x="16" y="56" fill="#0f172a" font-family="-apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif" font-size="15" font-weight="600" font-style="italic">"${revText}"</text>
+    <text x="16" y="${reviewCardH - 14}" fill="#475569" font-family="-apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif" font-size="11" font-weight="600">— Reviewed by ${reviewerName} (${escapeXml(reviewerRole)}) on ${escapeXml(revDateStr)} at ${escapeXml(revTimeStr)} IST</text>
+  </g>`;
+      y += reviewCardH + 16;
+    }
 
-  <!-- Row 1: SB, CD, TD Cards -->
+    const sec1Y = y;
+    const cards1Y = sec1Y + 20;
+    const tdY = cards1Y + 155 + 12;
+
+    const sec2Y = tdY + 125 + 16;
+    const cards2Y = sec2Y + 20;
+    const smaY = cards2Y + 155 + 12;
+
+    return `${reviewSvg}
+
+  <!-- Section 1 Title: Deposits -->
+  <text x="${pad}" y="${sec1Y + 12}" fill="#0f172a" font-family="-apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif" font-size="13" font-weight="800">01 · DEPOSIT MOBILIZATION &amp; ACCOUNTS TODAY</text>
+
   <!-- SB Card -->
-  <g transform="translate(32, 252)">
-    <rect width="268" height="175" rx="10" fill="#ffffff" stroke="${sbToday >= 0 ? '#bbf7d0' : '#fecaca'}" stroke-width="1.5" filter="url(#cardShadow)"/>
-    <rect width="268" height="6" rx="3" fill="${sbToday >= 0 ? '#10b981' : '#ef4444'}"/>
-    <text x="16" y="30" fill="#475569" font-family="-apple-system, sans-serif" font-size="12" font-weight="700">SB GROWTH TODAY</text>
-    <text x="16" y="62" fill="${sbToday >= 0 ? '#059669' : '#dc2626'}" font-family="-apple-system, sans-serif" font-size="22" font-weight="800">${sbToday >= 0 ? '+' : ''}₹${fmt(sbToday)}</text>
-    <rect x="16" y="76" width="236" height="28" rx="6" fill="#eff6ff"/>
-    <text x="26" y="95" fill="#1e40af" font-family="-apple-system, sans-serif" font-size="12" font-weight="700">SB Opened: +${sbOpened} (${sbFunded} funded)</text>
-    <text x="16" y="132" fill="#64748b" font-family="-apple-system, sans-serif" font-size="11">Confirmed MTD: ₹${fmt(cumSb)}</text>
-    <text x="16" y="152" fill="${sbToday >= 0 ? '#059669' : '#dc2626'}" font-family="-apple-system, sans-serif" font-size="11" font-weight="600">${sbToday >= 0 ? '▲ Positive mobilization today' : '▼ Net deficit/degrowth today'}</text>
+  <g transform="translate(${pad}, ${cards1Y})">
+    <rect width="${col2W}" height="155" rx="10" fill="#ffffff" stroke="${sbToday >= 0 ? '#bbf7d0' : '#fecaca'}" stroke-width="1.5" filter="url(#cardShadow)"/>
+    <rect width="${col2W}" height="5" rx="3" fill="${sbToday >= 0 ? '#10b981' : '#ef4444'}"/>
+    <text x="14" y="26" fill="#475569" font-family="-apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif" font-size="11" font-weight="700">SB GROWTH TODAY</text>
+    <text x="14" y="56" fill="${sbToday >= 0 ? '#059669' : '#dc2626'}" font-family="-apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif" font-size="24" font-weight="800">${sbToday >= 0 ? '+' : ''}₹${fmt(sbToday)}</text>
+    <rect x="14" y="70" width="${col2W - 28}" height="28" rx="6" fill="#eff6ff"/>
+    <text x="22" y="89" fill="#1e40af" font-family="-apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif" font-size="12" font-weight="700">SB Opened: +${sbOpened} (${sbFunded} funded)</text>
+    <text x="14" y="122" fill="#64748b" font-family="-apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif" font-size="11">Confirmed MTD: ₹${fmt(cumSb)}</text>
+    <text x="14" y="140" fill="${sbToday >= 0 ? '#047857' : '#b91c1c'}" font-family="-apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif" font-size="11" font-weight="600">${sbToday >= 0 ? '▲ Positive mobilization today' : '▼ Net deficit/degrowth today'}</text>
   </g>
 
   <!-- CD Card -->
-  <g transform="translate(316, 252)">
-    <rect width="268" height="175" rx="10" fill="#ffffff" stroke="${cdToday >= 0 ? '#bbf7d0' : '#fecaca'}" stroke-width="1.5" filter="url(#cardShadow)"/>
-    <rect width="268" height="6" rx="3" fill="${cdToday >= 0 ? '#10b981' : '#ef4444'}"/>
-    <text x="16" y="30" fill="#475569" font-family="-apple-system, sans-serif" font-size="12" font-weight="700">CD GROWTH TODAY</text>
-    <text x="16" y="62" fill="${cdToday >= 0 ? '#059669' : '#dc2626'}" font-family="-apple-system, sans-serif" font-size="22" font-weight="800">${cdToday >= 0 ? '+' : ''}₹${fmt(cdToday)}</text>
-    <rect x="16" y="76" width="236" height="28" rx="6" fill="#f8fafc"/>
-    <text x="26" y="95" fill="#334155" font-family="-apple-system, sans-serif" font-size="12" font-weight="700">CD Opened: +${cdOpened} (${cdFunded} funded)</text>
-    <text x="16" y="132" fill="#64748b" font-family="-apple-system, sans-serif" font-size="11">Confirmed MTD: ₹${fmt(cumCd)}</text>
-    <text x="16" y="152" fill="${cdToday >= 0 ? '#059669' : '#dc2626'}" font-family="-apple-system, sans-serif" font-size="11" font-weight="600">${cdToday >= 0 ? '▲ Positive accretion today' : '▼ Net deficit/degrowth today'}</text>
+  <g transform="translate(${pad + col2W + 14}, ${cards1Y})">
+    <rect width="${col2W}" height="155" rx="10" fill="#ffffff" stroke="${cdToday >= 0 ? '#bbf7d0' : '#fecaca'}" stroke-width="1.5" filter="url(#cardShadow)"/>
+    <rect width="${col2W}" height="5" rx="3" fill="${cdToday >= 0 ? '#10b981' : '#ef4444'}"/>
+    <text x="14" y="26" fill="#475569" font-family="-apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif" font-size="11" font-weight="700">CD GROWTH TODAY</text>
+    <text x="14" y="56" fill="${cdToday >= 0 ? '#059669' : '#dc2626'}" font-family="-apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif" font-size="24" font-weight="800">${cdToday >= 0 ? '+' : ''}₹${fmt(cdToday)}</text>
+    <rect x="14" y="70" width="${col2W - 28}" height="28" rx="6" fill="#f8fafc"/>
+    <text x="22" y="89" fill="#334155" font-family="-apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif" font-size="12" font-weight="700">CD Opened: +${cdOpened} (${cdFunded} funded)</text>
+    <text x="14" y="122" fill="#64748b" font-family="-apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif" font-size="11">Confirmed MTD: ₹${fmt(cumCd)}</text>
+    <text x="14" y="140" fill="${cdToday >= 0 ? '#047857' : '#b91c1c'}" font-family="-apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif" font-size="11" font-weight="600">${cdToday >= 0 ? '▲ Positive accretion today' : '▼ Net deficit/degrowth today'}</text>
   </g>
 
-  <!-- TD Card -->
-  <g transform="translate(600, 252)">
-    <rect width="268" height="175" rx="10" fill="#ffffff" stroke="${tdToday >= 0 ? '#bae6fd' : '#fecaca'}" stroke-width="1.5" filter="url(#cardShadow)"/>
-    <rect width="268" height="6" rx="3" fill="${tdToday >= 0 ? '#0284c7' : '#ef4444'}"/>
-    <text x="16" y="30" fill="#475569" font-family="-apple-system, sans-serif" font-size="12" font-weight="700">TD MOBILIZATION TODAY</text>
-    <text x="16" y="62" fill="${tdToday >= 0 ? '#0284c7' : '#dc2626'}" font-family="-apple-system, sans-serif" font-size="22" font-weight="800">${tdToday >= 0 ? '+' : ''}₹${fmt(tdToday)}</text>
-    <rect x="16" y="76" width="236" height="28" rx="6" fill="#f0fdf4"/>
-    <text x="26" y="95" fill="#166534" font-family="-apple-system, sans-serif" font-size="11" font-weight="700">Total Dep: ₹${fmt(totalDep)} today</text>
-    <text x="16" y="132" fill="#64748b" font-family="-apple-system, sans-serif" font-size="11">TD Mobilization Position</text>
-    <text x="16" y="152" fill="${tdToday >= 0 ? '#0284c7' : '#dc2626'}" font-family="-apple-system, sans-serif" font-size="11" font-weight="600">${tdToday >= 0 ? '▲ Positive term deposits' : '▼ Net outflow today'}</text>
+  <!-- TD Card (Full Width) -->
+  <g transform="translate(${pad}, ${tdY})">
+    <rect width="${contentW}" height="125" rx="10" fill="#ffffff" stroke="${tdToday >= 0 ? '#bae6fd' : '#fecaca'}" stroke-width="1.5" filter="url(#cardShadow)"/>
+    <rect width="${contentW}" height="5" rx="3" fill="${tdToday >= 0 ? '#0284c7' : '#ef4444'}"/>
+    <text x="16" y="28" fill="#475569" font-family="-apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif" font-size="11" font-weight="700">TD (TERM DEPOSIT) MOBILIZATION TODAY</text>
+    <text x="16" y="58" fill="${tdToday >= 0 ? '#0284c7' : '#dc2626'}" font-family="-apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif" font-size="24" font-weight="800">${tdToday >= 0 ? '+' : ''}₹${fmt(tdToday)}</text>
+    <text x="16" y="84" fill="#64748b" font-family="-apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif" font-size="11">Total Deposits Mobilized Today (SB+CD+TD): ₹${fmt(totalDep)}</text>
+    <text x="16" y="104" fill="${tdToday >= 0 ? '#0369a1' : '#b91c1c'}" font-family="-apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif" font-size="11" font-weight="600">${tdToday >= 0 ? '▲ Positive term deposits accretion today' : '▼ Term deposit outflow today'}</text>
+    <!-- Right side summary pill -->
+    <rect x="${contentW - 270}" y="22" width="254" height="80" rx="8" fill="#f0fdf4" stroke="#bbf7d0"/>
+    <text x="${contentW - 256}" y="44" fill="#166534" font-family="-apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif" font-size="11" font-weight="700">TOTAL DEPOSIT ACCRETION</text>
+    <text x="${contentW - 256}" y="66" fill="#15803d" font-family="-apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif" font-size="14" font-weight="800">${totalDep >= 0 ? '+' : ''}₹${fmt(totalDep)} today</text>
+    <text x="${contentW - 256}" y="86" fill="#047857" font-family="-apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif" font-size="11" font-weight="600">SB + CD + TD Net Mobilized</text>
   </g>
 
   <!-- Section 2 Title: Lending & Recovery -->
-  <text x="32" y="455" fill="#1e293b" font-family="-apple-system, sans-serif" font-size="13" font-weight="800">02 · LENDING &amp; RECOVERY PERFORMANCE TODAY</text>
+  <text x="${pad}" y="${sec2Y + 12}" fill="#0f172a" font-family="-apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif" font-size="13" font-weight="800">02 · LENDING &amp; RECOVERY PERFORMANCE TODAY</text>
 
-  <!-- Row 2: Sanctions, LPC, SMA Cards -->
   <!-- Sanctions Card -->
-  <g transform="translate(32, 467)">
-    <rect width="268" height="175" rx="10" fill="#ffffff" stroke="${sancCnt > 0 ? '#bbf7d0' : '#e2e8f0'}" stroke-width="1" filter="url(#cardShadow)"/>
-    <rect width="268" height="5" rx="2" fill="#059669"/>
-    <text x="16" y="28" fill="#475569" font-family="-apple-system, sans-serif" font-size="12" font-weight="700">SANCTIONS TODAY</text>
-    <text x="16" y="54" fill="${sancCnt > 0 ? '#059669' : '#64748b'}" font-family="-apple-system, sans-serif" font-size="20" font-weight="800">₹${fmt(sancAmt)}</text>
-    <text x="16" y="74" fill="#065f46" font-family="-apple-system, sans-serif" font-size="12" font-weight="700">${sancCnt} loans sanctioned today</text>
-    <text x="16" y="104" fill="#475569" font-family="-apple-system, sans-serif" font-size="11">• Retail: ₹${fmt(Number(v.sanction_retail_amount || 0))}</text>
-    <text x="16" y="124" fill="#475569" font-family="-apple-system, sans-serif" font-size="11">• Agri: ₹${fmt(Number(v.sanction_agri_amount || 0))}</text>
-    <text x="16" y="144" fill="#475569" font-family="-apple-system, sans-serif" font-size="11">• MSME: ₹${fmt(Number(v.sanction_msme_amount || 0))}</text>
+  <g transform="translate(${pad}, ${cards2Y})">
+    <rect width="${col2W}" height="155" rx="10" fill="#ffffff" stroke="${sancCnt > 0 ? '#bbf7d0' : '#e2e8f0'}" stroke-width="1.5" filter="url(#cardShadow)"/>
+    <rect width="${col2W}" height="5" rx="3" fill="#059669"/>
+    <text x="14" y="26" fill="#475569" font-family="-apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif" font-size="11" font-weight="700">LOAN SANCTIONS TODAY</text>
+    <text x="14" y="54" fill="${sancCnt > 0 ? '#059669' : '#64748b'}" font-family="-apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif" font-size="22" font-weight="800">₹${fmt(sancAmt)}</text>
+    <text x="14" y="74" fill="#065f46" font-family="-apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif" font-size="11" font-weight="700">${sancCnt} loans sanctioned today</text>
+    <text x="14" y="98" fill="#475569" font-family="-apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif" font-size="11">• Retail: ₹${fmt(Number(v.sanction_retail_amount || 0))}</text>
+    <text x="14" y="118" fill="#475569" font-family="-apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif" font-size="11">• Agri: ₹${fmt(Number(v.sanction_agri_amount || 0))}</text>
+    <text x="14" y="138" fill="#475569" font-family="-apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif" font-size="11">• MSME: ₹${fmt(Number(v.sanction_msme_amount || 0))}</text>
   </g>
 
-  <!-- LPC Card -->
-  <g transform="translate(316, 467)">
-    <rect width="268" height="175" rx="10" fill="#ffffff" stroke="${lpcCnt > 0 ? '#bae6fd' : '#e2e8f0'}" stroke-width="1" filter="url(#cardShadow)"/>
-    <rect width="268" height="5" rx="2" fill="#0284c7"/>
-    <text x="16" y="28" fill="#475569" font-family="-apple-system, sans-serif" font-size="12" font-weight="700">FORWARDED TO LPC</text>
-    <text x="16" y="54" fill="${lpcCnt > 0 ? '#0284c7' : '#64748b'}" font-family="-apple-system, sans-serif" font-size="20" font-weight="800">₹${fmt(lpcAmt)}</text>
-    <text x="16" y="74" fill="#0369a1" font-family="-apple-system, sans-serif" font-size="12" font-weight="700">${lpcCnt} proposals sent to LPC</text>
-    <text x="16" y="104" fill="#475569" font-family="-apple-system, sans-serif" font-size="11">• Retail LPC: ₹${fmt(Number(v.lpc_retail_amount || 0))}</text>
-    <text x="16" y="124" fill="#475569" font-family="-apple-system, sans-serif" font-size="11">• Agri LPC: ₹${fmt(Number(v.lpc_agri_amount || 0))}</text>
-    <text x="16" y="144" fill="#475569" font-family="-apple-system, sans-serif" font-size="11">• MSME LPC: ₹${fmt(Number(v.lpc_msme_amount || 0))}</text>
+  <!-- Forwarded to LPC Card -->
+  <g transform="translate(${pad + col2W + 14}, ${cards2Y})">
+    <rect width="${col2W}" height="155" rx="10" fill="#ffffff" stroke="${lpcCnt > 0 ? '#bae6fd' : '#e2e8f0'}" stroke-width="1.5" filter="url(#cardShadow)"/>
+    <rect width="${col2W}" height="5" rx="3" fill="#0284c7"/>
+    <text x="14" y="26" fill="#475569" font-family="-apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif" font-size="11" font-weight="700">FORWARDED TO LPC TODAY</text>
+    <text x="14" y="54" fill="${lpcCnt > 0 ? '#0284c7' : '#64748b'}" font-family="-apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif" font-size="22" font-weight="800">₹${fmt(lpcAmt)}</text>
+    <text x="14" y="74" fill="#0369a1" font-family="-apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif" font-size="11" font-weight="700">${lpcCnt} proposals sent to LPC</text>
+    <text x="14" y="98" fill="#475569" font-family="-apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif" font-size="11">• Retail LPC: ₹${fmt(Number(v.lpc_retail_amount || 0))}</text>
+    <text x="14" y="118" fill="#475569" font-family="-apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif" font-size="11">• Agri LPC: ₹${fmt(Number(v.lpc_agri_amount || 0))}</text>
+    <text x="14" y="138" fill="#475569" font-family="-apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif" font-size="11">• MSME LPC: ₹${fmt(Number(v.lpc_msme_amount || 0))}</text>
   </g>
 
-  <!-- SMA Card -->
-  <g transform="translate(600, 467)">
-    <rect width="268" height="175" rx="10" fill="#ffffff" stroke="${smaCnt > 0 ? '#bbf7d0' : '#e2e8f0'}" stroke-width="1" filter="url(#cardShadow)"/>
-    <rect width="268" height="5" rx="2" fill="#059669"/>
-    <text x="16" y="28" fill="#475569" font-family="-apple-system, sans-serif" font-size="12" font-weight="700">SMA ELIMINATIONS</text>
-    <text x="16" y="54" fill="${smaCnt > 0 ? '#059669' : '#64748b'}" font-family="-apple-system, sans-serif" font-size="20" font-weight="800">₹${fmt(smaAmt)}</text>
-    <text x="16" y="74" fill="#065f46" font-family="-apple-system, sans-serif" font-size="12" font-weight="700">${smaCnt} accounts eliminated today</text>
-    <text x="16" y="104" fill="#475569" font-family="-apple-system, sans-serif" font-size="11">• SMA 0: ₹${fmt(Number(v.sma0_amount || 0))}</text>
-    <text x="16" y="124" fill="#475569" font-family="-apple-system, sans-serif" font-size="11">• SMA 1: ₹${fmt(Number(v.sma1_amount || 0))}</text>
-    <text x="16" y="144" fill="#475569" font-family="-apple-system, sans-serif" font-size="11">• SMA 2: ₹${fmt(Number(v.sma2_amount || 0))}</text>
-  </g>
-
-  ${hasReview ? `
-  <!-- Section 3: Official Review Feedback -->
-  <g transform="translate(32, 665)">
-    <rect width="836" height="120" rx="10" fill="${revCardBg}" stroke="${revBorder}" stroke-width="2" filter="url(#cardShadow)"/>
-    <rect x="20" y="14" width="${revBadgeText.length * 8 + 20}" height="24" rx="6" fill="${revBadgeBg}"/>
-    <text x="30" y="30" fill="#ffffff" font-family="-apple-system, sans-serif" font-size="11" font-weight="800">${revBadgeText}</text>
-    <text x="20" y="66" fill="#1e293b" font-family="-apple-system, sans-serif" font-size="14" font-weight="600" font-style="italic">"${revText}"</text>
-    <text x="20" y="98" fill="#64748b" font-family="-apple-system, sans-serif" font-size="11" font-weight="500">— Issued by ${isGm ? 'General Manager (GM)' : 'Reviewer'} (${escapeXml(review?.by || 'Regional Office')})</text>
-  </g>` : ''}
+  <!-- SMA Eliminations Full-Width Card -->
+  <g transform="translate(${pad}, ${smaY})">
+    <rect width="${contentW}" height="105" rx="10" fill="#ffffff" stroke="${smaCnt > 0 ? '#bbf7d0' : '#e2e8f0'}" stroke-width="1.5" filter="url(#cardShadow)"/>
+    <rect width="${contentW}" height="5" rx="3" fill="#059669"/>
+    <text x="16" y="26" fill="#475569" font-family="-apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif" font-size="11" font-weight="700">SMA ELIMINATIONS TODAY (OVERDUE RESOLUTION)</text>
+    <text x="16" y="56" fill="${smaCnt > 0 ? '#059669' : '#64748b'}" font-family="-apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif" font-size="24" font-weight="800">₹${fmt(smaAmt)}</text>
+    <text x="16" y="80" fill="#065f46" font-family="-apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif" font-size="12" font-weight="700">${smaCnt} overdue accounts eliminated</text>
+    <rect x="${contentW - 300}" y="18" width="284" height="68" rx="6" fill="#f8fafc" stroke="#e2e8f0"/>
+    <text x="${contentW - 288}" y="38" fill="#334155" font-family="-apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif" font-size="11" font-weight="600">• SMA 0: ₹${fmt(Number(v.sma0_amount || 0))}</text>
+    <text x="${contentW - 288}" y="56" fill="#334155" font-family="-apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif" font-size="11" font-weight="600">• SMA 1: ₹${fmt(Number(v.sma1_amount || 0))}</text>
+    <text x="${contentW - 288}" y="74" fill="#334155" font-family="-apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif" font-size="11" font-weight="600">• SMA 2: ₹${fmt(Number(v.sma2_amount || 0))}</text>
+  </g>`;
+  })()}
 
   <!-- Footer -->
-  <line x1="32" y1="${H - 36}" x2="868" y2="${H - 36}" stroke="#e2e8f0" stroke-width="1"/>
-  <text x="32" y="${H - 18}" fill="#94a3b8" font-family="-apple-system, sans-serif" font-size="10" font-weight="600">INDIAN OVERSEAS BANK • REGIONAL OFFICE, DINDIGUL • DAILY PERFORMANCE PORTAL</text>
-  <text x="868" y="${H - 18}" text-anchor="end" fill="#94a3b8" font-family="-apple-system, sans-serif" font-size="10" font-weight="600">https://dailyreport-9265a.web.app</text>
+  <line x1="${pad}" y1="${H - 36}" x2="${W - pad}" y2="${H - 36}" stroke="#cbd5e1" stroke-width="1"/>
+  <text x="${pad}" y="${H - 18}" fill="#64748b" font-family="-apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif" font-size="10" font-weight="600">INDIAN OVERSEAS BANK • REGIONAL OFFICE, DINDIGUL</text>
+  <text x="${W - pad}" y="${H - 18}" text-anchor="end" fill="#64748b" font-family="-apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif" font-size="10" font-weight="600">https://dailyreport-9265a.web.app</text>
 </svg>`;
 }

@@ -761,11 +761,11 @@ export async function handlePortalPost(
       }
       const id = crypto.randomUUID();
       const branch = branches.find((b) => b.sol === body.sol)!;
-      const isGm = auth.user.role === 'srm' || auth.user.role === 'gm';
+      const isGmUser = auth.user.role === 'srm' || auth.user.role === 'gm';
       const status =
         body.status === 'clarification'
           ? 'clarification'
-          : isGm && (body.status === 'srm_direction' || body.status === 'gm_direction')
+          : isGmUser && (body.status === 'srm_direction' || body.status === 'gm_direction')
             ? body.status
             : 'reviewed';
       const review = {
@@ -797,26 +797,41 @@ export async function handlePortalPost(
         `• LPC Forwarded: ₹${Number(totalLpc).toLocaleString('en-IN')}\n` +
         `• SMA Resolved: ₹${Number(totalSma).toLocaleString('en-IN')}`;
 
+      const isSrm = body.status === 'srm_direction' || auth.user.role === 'srm';
+      const isGm = isSrm || body.status === 'gm_direction' || auth.user.role === 'gm';
+      const revTimeStr = new Date(now).toLocaleTimeString('en-IN', { timeZone: 'Asia/Kolkata', hour: '2-digit', minute: '2-digit' });
+      const revDateStr = date;
+      const reviewerName = auth.user.name || (auth.user.email ? auth.user.email.split('@')[0].toUpperCase() : 'Regional Office');
+      const reviewerRole = isSrm
+        ? 'Senior Regional Manager (SRM)'
+        : isGm
+        ? 'General Manager (GM)'
+        : auth.user.role === 'admin'
+        ? 'Regional Administrator'
+        : 'Regional Reviewer';
+
+      const reviewBlock = isSrm
+        ? `★ SRM DIRECTION:\n"${review.text}"\nSenior Regional Manager (SRM): ${auth.user.email}\n📅 Date: ${revDateStr}  •  ⏰ Time: ${revTimeStr} IST`
+        : isGm
+        ? `★ *GM EXECUTIVE DIRECTION:*\n"${review.text}"\n— *Reviewed by:* ${reviewerName} (${reviewerRole})\n📅 *Date:* ${revDateStr}  •  ⏰ *Time:* ${revTimeStr} IST`
+        : `📝 *REVIEWER FEEDBACK:*\n"${review.text}"\n— *Reviewed by:* ${reviewerName} (${reviewerRole})\n📅 *Date:* ${revDateStr}  •  ⏰ *Time:* ${revTimeStr} IST`;
+
       const groupText = `*INDIAN OVERSEAS BANK - DINDIGUL REGION*\n` +
         `*DAILY PERFORMANCE REVIEW · ${date}*\n\n` +
         `📍 *Branch:* ${branch.name} (SOL ${body.sol})\n` +
         `👤 *Branch Head:* ${contact?.name || 'Branch Head'}\n` +
         `📋 *Report Revision:* Revision ${sub.revision}\n\n` +
         `${dataSummary}\n\n` +
-        `${isGm ? '★ *GM EXECUTIVE DIRECTION:*' : '📝 *REVIEWER FEEDBACK:*'}\n` +
-        `"${review.text}"\n` +
-        `— ${isGm ? 'General Manager (GM)' : 'Reviewer'} (${auth.user.email})\n\n` +
-        `📸 *Scorecard Image:* ${imgUrl}\n` +
+        `${reviewBlock}\n\n` +
+        `📸 *Scorecard Image (Mobile Format):* ${imgUrl}\n` +
         `👉 https://dailyreport-9265a.web.app/?date=${date}&sol=${body.sol}`;
 
       const headText = `Dear ${contact?.name || 'Branch Head'},\n` +
         `Greetings from Regional Office.\n\n` +
         `*Daily Performance Review Feedback for ${branch.name} (SOL ${body.sol}) on ${date}:*\n\n` +
         `${dataSummary}\n\n` +
-        `${isGm ? '★ *GM EXECUTIVE DIRECTION:*' : '📝 *REVIEW FEEDBACK:*'}\n` +
-        `"${review.text}"\n` +
-        `— ${isGm ? 'General Manager (GM)' : 'Reviewer'}\n\n` +
-        `📸 *Your Day's Performance Scorecard Image:* ${imgUrl}\n` +
+        `${reviewBlock}\n\n` +
+        `📸 *Your Day's Performance Scorecard Image (Mobile Format):* ${imgUrl}\n` +
         `👉 View your confirmed position: https://dailyreport-9265a.web.app/?date=${date}&sol=${body.sol}`;
 
       const keyGroup = 'out:review:' + id;
@@ -830,7 +845,7 @@ export async function handlePortalPost(
           value: {
             date,
             sol: body.sol,
-            type: isGm ? 'GM Direction (Group)' : 'Review reply (Group)',
+            type: isSrm ? 'SRM Direction' : isGm ? 'GM Direction (Group)' : 'Review reply (Group)',
             status: 'pending',
             text: groupText,
             imageUrl: imgUrl,
