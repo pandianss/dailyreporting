@@ -483,7 +483,7 @@ export default function FundingPortal() {
             }}
           >
             <Coins size={18} />
-            Low balance accounts
+            <span>Low balance accounts</span>
           </button>
           {!isBranch && (
             <button
@@ -494,7 +494,7 @@ export default function FundingPortal() {
               }}
             >
               <LayoutDashboard size={18} />
-              Branch summary
+              <span>Branch summary</span>
             </button>
           )}
           <button
@@ -506,7 +506,7 @@ export default function FundingPortal() {
             }}
           >
             <Award size={18} />
-            Appreciation &amp; Certificates
+            <span>Appreciation &amp; Certificates</span>
           </button>
           {isAdmin && (
             <button
@@ -517,7 +517,7 @@ export default function FundingPortal() {
               }}
             >
               <Upload size={18} />
-              Upload accounts
+              <span>Upload accounts</span>
             </button>
           )}
         </nav>

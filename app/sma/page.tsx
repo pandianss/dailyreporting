@@ -1222,7 +1222,7 @@ export default function SmaPortal() {
               }}
             >
               <Icon size={18} />
-              {name}
+              <span>{name}</span>
             </button>
           ))}
         </nav>
