@@ -12,6 +12,9 @@ export interface ScorecardOptions {
     by: string;
     role: string;
     at: string;
+    reviewerName?: string;
+    reviewerRole?: string;
+    [k: string]: any;
   } | null;
   fundingAccounts?: any[];
   campaigns?: any[];
@@ -19,6 +22,28 @@ export interface ScorecardOptions {
 }
 
 const fmt = (n: any) => (n === undefined || n === null ? '—' : Number(n).toLocaleString('en-IN'));
+
+export function formatReviewerAttribution(name?: string | null, role?: string | null): string {
+  const n = (name || '').trim();
+  const r = (role || '').trim();
+
+  if (!n && !r) return 'Regional Office';
+  if (!r) return n;
+  if (!n) return r;
+
+  const nLow = n.toLowerCase();
+  const rLow = r.toLowerCase();
+
+  if (nLow === rLow || rLow.startsWith(nLow) || nLow.startsWith(rLow)) {
+    return r.length >= n.length ? r : n;
+  }
+
+  if (nLow === 'regional office' || nLow === 'reviewer' || nLow === 'regional reviewer') {
+    return r;
+  }
+
+  return `${n} (${r})`;
+}
 
 function roundRect(ctx: CanvasRenderingContext2D, x: number, y: number, w: number, h: number, r: number) {
   if (ctx.roundRect) {
@@ -139,9 +164,12 @@ export async function generateBranchPerformanceScorecard(
     ? 'Regional Reviewer'
     : (review?.role || 'Regional Reviewer');
 
-  const reviewerName = review?.by
-    ? (review.by.includes('@') ? review.by.split('@')[0].toUpperCase() : review.by)
-    : 'Regional Office';
+  const rawBy = (review?.by && String(review.by).trim()) || (review?.reviewerName && String(review.reviewerName).trim()) || '';
+  const reviewerName = rawBy
+    ? (rawBy.includes('@') ? rawBy.split('@')[0].toUpperCase() : rawBy)
+    : (isGmDirection ? 'General Manager (GM)' : 'Regional Reviewer');
+
+  const reviewerSig = formatReviewerAttribution(reviewerName, reviewerRoleText);
 
   let reviewDateStr = date;
   let reviewTimeStr = '';
@@ -347,7 +375,7 @@ export async function generateBranchPerformanceScorecard(
     // Reviewer Attribution with Name, Date, and Time
     ctx.fillStyle = '#475569';
     ctx.font = '700 11px -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif';
-    const sigLine = `— Reviewed by ${reviewerName} (${reviewerRoleText}) on ${reviewDateStr} at ${reviewTimeStr} IST`;
+    const sigLine = `— Reviewed by ${reviewerSig} on ${reviewDateStr} at ${reviewTimeStr} IST`;
     ctx.fillText(sigLine, pad + 16, Math.max(nextY + 6, curY + estimatedReviewCardH - 14));
 
     curY += estimatedReviewCardH + 16;
@@ -661,7 +689,7 @@ export async function generateBranchPerformanceScorecard(
 
 ${hasReview ? `${reviewHeading}
 "${reviewText}"
-— *Reviewed by:* ${reviewerName} (${reviewerRoleText})
+— *Reviewed by:* ${reviewerSig}
 📅 *Date:* ${reviewDateStr}  •  ⏰ *Time:* ${reviewTimeStr} IST
 ` : '✓ *DAILY PERFORMANCE SUBMISSION REVIEWED*\n'}
 📸 *Branch performance scorecard image (mobile format) attached above.*
@@ -675,7 +703,7 @@ Greetings from Regional Office.
 
 ${hasReview ? `${reviewHeading}
 "${reviewText}"
-— *Reviewed by:* ${reviewerName} (${reviewerRoleText})
+— *Reviewed by:* ${reviewerSig}
 📅 *Date:* ${reviewDateStr}  •  ⏰ *Time:* ${reviewTimeStr} IST
 ` : '✓ *Your daily performance report has been reviewed.*\n'}
 📸 *Your Day's Performance Scorecard Image (mobile format) is attached above.*

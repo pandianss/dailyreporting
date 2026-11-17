@@ -1,3 +1,25 @@
+function formatReviewerAttribution(name?: string | null, role?: string | null): string {
+  const n = (name || '').trim();
+  const r = (role || '').trim();
+
+  if (!n && !r) return 'Regional Office';
+  if (!r) return n;
+  if (!n) return r;
+
+  const nLow = n.toLowerCase();
+  const rLow = r.toLowerCase();
+
+  if (nLow === rLow || rLow.startsWith(nLow) || nLow.startsWith(rLow)) {
+    return r.length >= n.length ? r : n;
+  }
+
+  if (nLow === 'regional office' || nLow === 'reviewer' || nLow === 'regional reviewer') {
+    return r;
+  }
+
+  return `${n} (${r})`;
+}
+
 export function renderScorecardSvg(opts: {
   sol: string;
   date: string;
@@ -58,11 +80,12 @@ export function renderScorecardSvg(opts: {
     ? 'Regional Reviewer'
     : (review?.role || 'Regional Reviewer');
 
-  const reviewerName = escapeXml(
-    review?.by
-      ? (review.by.includes('@') ? review.by.split('@')[0].toUpperCase() : review.by)
-      : 'Regional Office'
-  );
+  const rawBy = (review?.by && String(review.by).trim()) || (review?.reviewerName && String(review.reviewerName).trim()) || '';
+  const reviewerName = rawBy
+    ? (rawBy.includes('@') ? rawBy.split('@')[0].toUpperCase() : rawBy)
+    : (isGm ? 'General Manager (GM)' : 'Regional Reviewer');
+
+  const reviewerSig = escapeXml(formatReviewerAttribution(reviewerName, reviewerRole));
 
   let revDateStr = date;
   let revTimeStr = '';
@@ -159,7 +182,7 @@ export function renderScorecardSvg(opts: {
     <rect x="14" y="12" width="${revBadgeText.length * 8 + 20}" height="22" rx="6" fill="${revBadgeBg}"/>
     <text x="24" y="27" fill="#ffffff" font-family="-apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif" font-size="11" font-weight="800">${revBadgeText}</text>
     <text x="16" y="56" fill="#0f172a" font-family="-apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif" font-size="15" font-weight="600" font-style="italic">"${revText}"</text>
-    <text x="16" y="${reviewCardH - 14}" fill="#475569" font-family="-apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif" font-size="11" font-weight="700">— Reviewed by ${reviewerName} (${escapeXml(reviewerRole)}) on ${escapeXml(revDateStr)} at ${escapeXml(revTimeStr)} IST</text>
+    <text x="16" y="${reviewCardH - 14}" fill="#475569" font-family="-apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif" font-size="11" font-weight="700">— Reviewed by ${reviewerSig} on ${escapeXml(revDateStr)} at ${escapeXml(revTimeStr)} IST</text>
   </g>`;
       y += reviewCardH + 16;
     }

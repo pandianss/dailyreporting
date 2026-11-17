@@ -62,6 +62,28 @@ export const SESSION_COOKIE = '__session';
 const SESSION_TTL_MS = 8 * 60 * 60 * 1000; // 8 hours
 const AUTH_WINDOW_MS = 15 * 60 * 1000; // 15 minutes
 
+export function formatReviewerAttribution(name?: string | null, role?: string | null): string {
+  const n = (name || '').trim();
+  const r = (role || '').trim();
+
+  if (!n && !r) return 'Regional Office';
+  if (!r) return n;
+  if (!n) return r;
+
+  const nLow = n.toLowerCase();
+  const rLow = r.toLowerCase();
+
+  if (nLow === rLow || rLow.startsWith(nLow) || nLow.startsWith(rLow)) {
+    return r.length >= n.length ? r : n;
+  }
+
+  if (nLow === 'regional office' || nLow === 'reviewer' || nLow === 'regional reviewer') {
+    return r;
+  }
+
+  return `${n} (${r})`;
+}
+
 export function normalizeMobile(value: unknown): string {
   const s = String(value ?? '').replace(/[\s+-]/g, '');
   const n = s.length === 10 ? '91' + s : s;
@@ -454,8 +476,9 @@ export async function handlePortalGet(
     }).catch(() => {});
 
     const isBranch = auth.user.role === 'branch';
-    const isSma = input.portal === 'sma';
-    const isFunding = input.portal === 'funding';
+    const isDaily = input.portal === 'daily';
+    const isSma = input.portal === 'sma' || (!input.portal && !isDaily);
+    const isFunding = input.portal === 'funding' || (!input.portal && !isDaily);
     const canSeeDirectory = ['admin', 'reviewer', 'srm', 'gm'].includes(auth.user.role);
 
     // Parallel fetch using Promise.all for maximum speed and sub-second load times!
@@ -768,25 +791,11 @@ export async function handlePortalPost(
           : isGmUser && (body.status === 'srm_direction' || body.status === 'gm_direction')
             ? body.status
             : 'reviewed';
-      const review = {
-        id,
-        date,
-        sol: body.sol,
-        text: String(body.text).slice(0, 2000),
-        revision: sub.revision,
-        status,
-        role: auth.user.role === 'gm' ? 'srm' : auth.user.role,
-        by: auth.user.email,
-        at: now,
-      };
-      const contact: any = await store.get('contact:' + body.sol);
-      const imgUrl = `https://dailyreport-9265a.web.app/api/card?sol=${body.sol}&date=${date}`;
-
       const isSrm = body.status === 'srm_direction' || auth.user.role === 'srm';
       const isGm = isSrm || body.status === 'gm_direction' || auth.user.role === 'gm';
       const revTimeStr = new Date(now).toLocaleTimeString('en-IN', { timeZone: 'Asia/Kolkata', hour: '2-digit', minute: '2-digit' });
       const revDateStr = date;
-      const reviewerName = auth.user.name || (auth.user.email ? auth.user.email.split('@')[0].toUpperCase() : 'Regional Office');
+
       const reviewerRole = isSrm
         ? 'Senior Regional Manager (SRM)'
         : isGm
@@ -795,11 +804,32 @@ export async function handlePortalPost(
         ? 'Regional Administrator'
         : 'Regional Reviewer';
 
-      const reviewBlock = isSrm
-        ? `★ SRM DIRECTION:\n"${review.text}"\nSenior Regional Manager (SRM): ${auth.user.email}\n📅 Date: ${revDateStr}  •  ⏰ Time: ${revTimeStr} IST`
-        : isGm
-        ? `★ *GM EXECUTIVE DIRECTION:*\n"${review.text}"\n— *Reviewed by:* ${reviewerName} (${reviewerRole})\n📅 *Date:* ${revDateStr}  •  ⏰ *Time:* ${revTimeStr} IST`
-        : `📝 *REVIEWER FEEDBACK:*\n"${review.text}"\n— *Reviewed by:* ${reviewerName} (${reviewerRole})\n📅 *Date:* ${revDateStr}  •  ⏰ *Time:* ${revTimeStr} IST`;
+      const reviewerName = (auth.user.name && auth.user.name.trim())
+        || (auth.user.email && auth.user.email.trim() ? auth.user.email.split('@')[0].toUpperCase() : '')
+        || (auth.user.phone ? 'RO Officer (' + auth.user.phone.slice(-4) + ')' : '')
+        || (isGm ? 'General Manager (GM)' : 'Regional Reviewer');
+
+      const reviewerSig = formatReviewerAttribution(reviewerName, reviewerRole);
+
+      const review = {
+        id,
+        date,
+        sol: body.sol,
+        text: String(body.text).slice(0, 2000),
+        revision: sub.revision,
+        status,
+        role: auth.user.role === 'gm' ? 'srm' : auth.user.role,
+        by: reviewerName,
+        reviewerName,
+        reviewerRole,
+        at: now,
+      };
+      const contact: any = await store.get('contact:' + body.sol);
+      const imgUrl = `https://dailyreport-9265a.web.app/api/card?sol=${body.sol}&date=${date}`;
+
+      const reviewBlock = isGm
+        ? `★ *GM EXECUTIVE DIRECTION:*\n"${review.text}"\n— *Reviewed by:* ${reviewerSig}\n📅 *Date:* ${revDateStr}  •  ⏰ *Time:* ${revTimeStr} IST`
+        : `📝 *REVIEWER FEEDBACK:*\n"${review.text}"\n— *Reviewed by:* ${reviewerSig}\n📅 *Date:* ${revDateStr}  •  ⏰ *Time:* ${revTimeStr} IST`;
 
       const groupText = `*INDIAN OVERSEAS BANK - DINDIGUL REGION*\n` +
         `*DAILY PERFORMANCE REVIEW · ${date}*\n\n` +
