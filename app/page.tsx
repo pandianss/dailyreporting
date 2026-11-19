@@ -1,6 +1,6 @@
 'use client';
 import {useEffect,useState,useRef} from 'react';
-import {LayoutDashboard,Upload,ClipboardList,MessageSquare,Users,Flag,ArrowUpRight,ArrowDownRight,CheckCircle2,Clock,ChevronRight,Download,Plus,Send,RefreshCw,Building2,ExternalLink,UserCheck,X,FastForward,RotateCcw,Copy,Phone,Sparkles,Megaphone,Edit} from 'lucide-react';
+import {LayoutDashboard,Upload,ClipboardList,MessageSquare,Users,Flag,ArrowUpRight,ArrowDownRight,CheckCircle2,Clock,ChevronRight,Download,Plus,Send,RefreshCw,Building2,ExternalLink,UserCheck,X,FastForward,RotateCcw,Copy,Phone,Sparkles,Megaphone,Edit,AlertCircle,Info} from 'lucide-react';
 import Login from './Login';
 import { generateBranchPerformanceScorecard, formatReviewerAttribution } from './performance-image';
 import { generateAnnouncementImage } from './announcement-image';
@@ -265,6 +265,21 @@ const [lakhsConfirmModal, setLakhsConfirmModal] = useState<any>(null);
 const [editSnapModal, setEditSnapModal] = useState<any>(null);
 const [reviewerNameInput, setReviewerNameInput] = useState('');
 const [reviewerRoleInput, setReviewerRoleInput] = useState('');
+const [toasts, setToasts] = useState<Array<{ id: string; message: string; type: 'success' | 'error' | 'info'; title?: string }>>([]);
+const [submissionIntimation, setSubmissionIntimation] = useState<any>(null);
+
+function showToast(message: string, type: 'success' | 'error' | 'info' = 'success', title?: string) {
+  if (typeof navigator !== 'undefined' && (navigator as any).vibrate) {
+    try {
+      (navigator as any).vibrate(type === 'error' ? [50, 50, 50] : [30, 40]);
+    } catch {}
+  }
+  const id = Math.random().toString(36).slice(2, 9);
+  setToasts((prev) => [...prev, { id, message, type, title }]);
+  setTimeout(() => {
+    setToasts((prev) => prev.filter((t) => t.id !== id));
+  }, 6500);
+}
 
 function openEditSnap(solToEdit: string) {
   const branchObj = data?.branches?.find((b: any) => b.sol === solToEdit) || { sol: solToEdit, name: 'Branch ' + solToEdit };
@@ -669,7 +684,25 @@ useEffect(()=>{
 },[data]);
 useEffect(()=>{load();setValues({});setReply('');setRows([]);setMeta((m:any)=>({...m,cutoff:cutoffs(date).yesterday}));},[date]);
 useEffect(()=>{const timer=setInterval(()=>{if(document.visibilityState==='visible')load(true);},15000);const onFocus=()=>load(true);const onVisibility=()=>{if(document.visibilityState==='visible')load(true);};window.addEventListener('focus',onFocus);document.addEventListener('visibilitychange',onVisibility);return ()=>{clearInterval(timer);window.removeEventListener('focus',onFocus);document.removeEventListener('visibilitychange',onVisibility);};},[date]);
-async function act(body:any,message:string){setBusy(true);setError('');setNotice('');try{const r=await fetch('/api/portal',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({date,...body})}),j:any=await r.json();if(!r.ok)throw Error(j.error);await load();setNotice(message);return true;}catch(e:any){setError(e.message);return false;}finally{setBusy(false);}}
+async function act(body:any,message:string){
+  setBusy(true);
+  setError('');
+  setNotice('');
+  try {
+    const r=await fetch('/api/portal',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({date,...body})}),j:any=await r.json();
+    if(!r.ok)throw Error(j.error);
+    await load();
+    setNotice(message);
+    showToast(message, 'success');
+    return true;
+  } catch(e:any) {
+    setError(e.message);
+    showToast(e.message, 'error', 'Action Failed');
+    return false;
+  } finally {
+    setBusy(false);
+  }
+}
 function openBranch(s:string,t='Branch report'){setSol(s);setTab(t);const old=data.subs.find((x:any)=>x.sol===s);setValues(old?.values||{});setReply('');}
 const active=data?.pub?.campaigns||data?.campaigns?.filter((c:any)=>c.start<=date&&c.end>=date)||[];
 const selectedCamp = active.find((c: any) => c.id === (selectedCampId || active[0]?.id)) || active[0];
@@ -948,6 +981,37 @@ const growthField = (label: string, k: string) => {
   );
 };
 
+const submitBranchReport = async (submittedValues: any, customNotice?: string) => {
+  const targetSol = sol;
+  const branchObj = data?.branches?.find((b: any) => b.sol === targetSol) || { sol: targetSol, name: 'Branch ' + targetSol };
+  const oldSub = data?.subs?.find((s: any) => s.sol === targetSol);
+  const nextRevision = (oldSub?.revision || 0) + 1;
+  const submitTime = new Date().toLocaleTimeString('en-IN', { timeZone: 'Asia/Kolkata', hour: '2-digit', minute: '2-digit' });
+  const submitDateStr = new Date().toLocaleDateString('en-GB', { day: '2-digit', month: 'short', year: 'numeric', timeZone: 'Asia/Kolkata' });
+
+  const ok = await act(
+    { action: 'submit', sol: targetSol, values: submittedValues },
+    customNotice || `Daily performance report saved for ${branchObj.name} (SOL ${targetSol}). Revision ${nextRevision} recorded.`
+  );
+
+  if (ok) {
+    showToast(
+      `Daily report for ${branchObj.name} (SOL ${targetSol}) confirmed! Revision ${nextRevision} saved successfully.`,
+      'success',
+      '✓ Submission Confirmed'
+    );
+    setSubmissionIntimation({
+      branch: branchObj,
+      sol: targetSol,
+      date,
+      time: submitTime,
+      fullDate: submitDateStr,
+      revision: nextRevision,
+      values: submittedValues,
+    });
+  }
+};
+
 const handleBranchSubmit = () => {
   const suspiciousList: Array<{ key: string; label: string; entered: number; converted: number; enteredFmt: string; convertedFmt: string }> = [];
   for (const [key, label] of Object.entries(AMOUNT_FIELD_METAS)) {
@@ -975,7 +1039,7 @@ const handleBranchSubmit = () => {
     return;
   }
 
-  act({ action: 'submit', sol, values }, 'Report saved. Prior revisions are retained.');
+  submitBranchReport(values);
 };
 const status=(b:any)=>{const s=data.subs.find((x:any)=>x.sol===b.sol);if(!s)return 'Pending';const rev=data.reviews.filter((x:any)=>x.sol===b.sol&&x.revision===s.revision).sort((a:any,b:any)=>b.at.localeCompare(a.at))[0];return rev?.status==='clarification'?'Clarification':rev?'Reviewed':'Submitted';};
 const isAdmin=data?.user.role==='admin';const isGm=data?.user.role==='srm'||data?.user.role==='gm';const canReview=data?.user.role!=='branch';
@@ -3022,7 +3086,7 @@ return <div className={"shell role-"+data.user.role}><aside><div className="bran
               }
               setValues(updatedValues);
               setLakhsConfirmModal(null);
-              act({ action: 'submit', sol, values: updatedValues }, 'Report saved with amounts converted to Lakhs (actual ₹).');
+              submitBranchReport(updatedValues, 'Report saved with amounts converted to Lakhs (actual ₹).');
             }}
             style={{
               padding: '10px 16px',
@@ -3048,7 +3112,7 @@ return <div className={"shell role-"+data.user.role}><aside><div className="bran
               className="secondary"
               onClick={() => {
                 setLakhsConfirmModal(null);
-                act({ action: 'submit', sol, values }, 'Report saved. Prior revisions are retained.');
+                submitBranchReport(values, 'Report saved as actuals. Prior revisions are retained.');
               }}
               style={{
                 flex: 1,
@@ -3464,5 +3528,352 @@ return <div className={"shell role-"+data.user.role}><aside><div className="bran
     </div>
   </div>
 )}
+
+{/* Floating Toast / Snackbar Notification Container (Material Design 3) */}
+<div
+  style={{
+    position: 'fixed',
+    top: 18,
+    left: '50%',
+    transform: 'translateX(-50%)',
+    zIndex: 99999,
+    display: 'flex',
+    flexDirection: 'column',
+    gap: 8,
+    width: '92%',
+    maxWidth: 440,
+    pointerEvents: 'none',
+  }}
+>
+  {toasts.map((toast) => (
+    <div
+      key={toast.id}
+      className="toast-item"
+      style={{
+        pointerEvents: 'auto',
+        background: toast.type === 'error' ? '#fef2f2' : toast.type === 'info' ? '#eff6ff' : '#ecfdf5',
+        border: `1.5px solid ${toast.type === 'error' ? '#fca5a5' : toast.type === 'info' ? '#93c5fd' : '#86efac'}`,
+        color: toast.type === 'error' ? '#991b1b' : toast.type === 'info' ? '#1e40af' : '#065f46',
+        borderRadius: 12,
+        padding: '12px 16px',
+        boxShadow: '0 10px 25px -5px rgba(0, 0, 0, 0.15), 0 4px 6px -2px rgba(0, 0, 0, 0.05)',
+        display: 'flex',
+        alignItems: 'flex-start',
+        gap: 12,
+      }}
+    >
+      <div style={{ marginTop: 2, flexShrink: 0 }}>
+        {toast.type === 'error' ? (
+          <AlertCircle size={18} color="#dc2626" />
+        ) : toast.type === 'info' ? (
+          <Info size={18} color="#2563eb" />
+        ) : (
+          <CheckCircle2 size={18} color="#059669" />
+        )}
+      </div>
+      <div style={{ flex: 1, minWidth: 0 }}>
+        {toast.title && (
+          <div style={{ fontWeight: 800, fontSize: 13, marginBottom: 2 }}>
+            {toast.title}
+          </div>
+        )}
+        <div style={{ fontSize: 13, lineHeight: 1.4, fontWeight: 500 }}>
+          {toast.message}
+        </div>
+      </div>
+      <button
+        type="button"
+        onClick={() => setToasts((prev) => prev.filter((t) => t.id !== toast.id))}
+        aria-label="Dismiss toast"
+        style={{
+          background: 'transparent',
+          border: 0,
+          color: 'inherit',
+          opacity: 0.6,
+          cursor: 'pointer',
+          padding: 2,
+          display: 'flex',
+          alignItems: 'center',
+          justifyContent: 'center',
+          lineHeight: 1,
+        }}
+      >
+        <X size={14} />
+      </button>
+    </div>
+  ))}
+</div>
+
+{/* Full Submission Confirmation / Intimation Card Modal */}
+{submissionIntimation && (() => {
+  const vals = submissionIntimation.values || {};
+  const totSancCnt = ['retail', 'agri', 'msme'].reduce((acc: number, s: string) => acc + Number(vals['sanction_' + s + '_count'] || 0), 0);
+  const totSancAmt = ['retail', 'agri', 'msme'].reduce((acc: number, s: string) => acc + Number(vals['sanction_' + s + '_amount'] || 0), 0);
+  const totLpcCnt = ['retail', 'agri', 'msme'].reduce((acc: number, s: string) => acc + Number(vals['lpc_' + s + '_count'] || 0), 0);
+  const totLpcAmt = ['retail', 'agri', 'msme'].reduce((acc: number, s: string) => acc + Number(vals['lpc_' + s + '_amount'] || 0), 0);
+  const totSmaCnt = ['sma0', 'sma1', 'sma2'].reduce((acc: number, s: string) => acc + Number(vals[s + '_count'] || 0), 0);
+  const totSmaAmt = ['sma0', 'sma1', 'sma2'].reduce((acc: number, s: string) => acc + Number(vals[s + '_amount'] || 0), 0);
+
+  return (
+    <div
+      style={{
+        position: 'fixed',
+        top: 0,
+        left: 0,
+        right: 0,
+        bottom: 0,
+        background: 'rgba(15, 23, 42, 0.72)',
+        backdropFilter: 'blur(4px)',
+        display: 'flex',
+        alignItems: 'center',
+        justifyContent: 'center',
+        zIndex: 10000,
+        padding: 16,
+      }}
+    >
+      <div
+        className="modal-zoom"
+        style={{
+          background: '#ffffff',
+          borderRadius: 16,
+          maxWidth: 520,
+          width: '100%',
+          boxShadow: '0 25px 50px -12px rgba(0, 0, 0, 0.3)',
+          overflow: 'hidden',
+          border: '1px solid #cbd5e1',
+        }}
+      >
+        {/* Top Header Banner */}
+        <div
+          style={{
+            background: 'linear-gradient(135deg, #065f46, #059669)',
+            color: '#ffffff',
+            padding: '20px 22px',
+            display: 'flex',
+            justifyContent: 'space-between',
+            alignItems: 'flex-start',
+          }}
+        >
+          <div style={{ display: 'flex', gap: 12, alignItems: 'center' }}>
+            <div
+              style={{
+                width: 44,
+                height: 44,
+                borderRadius: '50%',
+                background: 'rgba(255, 255, 255, 0.22)',
+                display: 'flex',
+                alignItems: 'center',
+                justifyContent: 'center',
+                flexShrink: 0,
+              }}
+            >
+              <CheckCircle2 size={26} color="#ffffff" />
+            </div>
+            <div>
+              <span
+                style={{
+                  fontSize: 10,
+                  fontWeight: 800,
+                  letterSpacing: '0.8px',
+                  textTransform: 'uppercase',
+                  background: 'rgba(255, 255, 255, 0.22)',
+                  padding: '2px 8px',
+                  borderRadius: 20,
+                  display: 'inline-block',
+                  marginBottom: 3,
+                }}
+              >
+                Official Submission Receipt
+              </span>
+              <div style={{ fontSize: 18, fontWeight: 800, lineHeight: 1.2 }}>
+                Submission Confirmed
+              </div>
+              <div style={{ fontSize: 12, color: '#a7f3d0', marginTop: 2 }}>
+                {submissionIntimation.branch.name} (SOL {submissionIntimation.sol})
+              </div>
+            </div>
+          </div>
+          <button
+            type="button"
+            onClick={() => setSubmissionIntimation(null)}
+            style={{
+              background: 'transparent',
+              border: 0,
+              color: '#ffffff',
+              opacity: 0.8,
+              cursor: 'pointer',
+              padding: 4,
+            }}
+          >
+            <X size={20} />
+          </button>
+        </div>
+
+        {/* Intimation Body */}
+        <div style={{ padding: '20px 22px' }}>
+          {/* Reference Banner */}
+          <div
+            style={{
+              background: '#f0fdf4',
+              border: '1px solid #bbf7d0',
+              borderRadius: 10,
+              padding: '10px 14px',
+              marginBottom: 16,
+              display: 'flex',
+              justifyContent: 'space-between',
+              alignItems: 'center',
+              flexWrap: 'wrap',
+              gap: 8,
+            }}
+          >
+            <div>
+              <div style={{ fontSize: 11, color: '#166534', fontWeight: 700, textTransform: 'uppercase' }}>
+                Reporting Verification
+              </div>
+              <div style={{ fontSize: 14, fontWeight: 800, color: '#065f46' }}>
+                Revision {submissionIntimation.revision} &bull; {submissionIntimation.date}
+              </div>
+            </div>
+            <div style={{ textAlign: 'right' }}>
+              <div style={{ fontSize: 11, color: '#64748b', fontWeight: 600 }}>Recorded Time</div>
+              <div style={{ fontSize: 13, fontWeight: 700, color: '#1e293b' }}>
+                {submissionIntimation.time} IST
+              </div>
+            </div>
+          </div>
+
+          {/* Breakdown Highlights */}
+          <div style={{ fontSize: 11, fontWeight: 800, color: '#475569', textTransform: 'uppercase', letterSpacing: '0.5px', marginBottom: 8 }}>
+            Key Performance Figures Intimation
+          </div>
+          <div
+            style={{
+              display: 'grid',
+              gridTemplateColumns: 'repeat(2, 1fr)',
+              gap: 8,
+              marginBottom: 16,
+            }}
+          >
+            <div style={{ background: '#f8fafc', border: '1px solid #e2e8f0', borderRadius: 8, padding: '8px 12px' }}>
+              <small style={{ color: '#64748b', fontSize: 11, fontWeight: 600 }}>SB Opened / Funded</small>
+              <div style={{ fontSize: 14, fontWeight: 800, color: '#0284c7' }}>
+                +{vals.sb_opened || 0} ({vals.sb_funded || 0} funded)
+              </div>
+            </div>
+            <div style={{ background: '#f8fafc', border: '1px solid #e2e8f0', borderRadius: 8, padding: '8px 12px' }}>
+              <small style={{ color: '#64748b', fontSize: 11, fontWeight: 600 }}>CD Opened / Funded</small>
+              <div style={{ fontSize: 14, fontWeight: 800, color: '#0f766e' }}>
+                +{vals.cd_opened || 0} ({vals.cd_funded || 0} funded)
+              </div>
+            </div>
+            <div style={{ background: '#f8fafc', border: '1px solid #e2e8f0', borderRadius: 8, padding: '8px 12px' }}>
+              <small style={{ color: '#64748b', fontSize: 11, fontWeight: 600 }}>Deposit Growth Today</small>
+              <div style={{ fontSize: 12, fontWeight: 700 }}>
+                SB: <span style={{ color: Number(vals.sb_growth_today || 0) < 0 ? '#dc2626' : '#059669' }}>₹{fmt(vals.sb_growth_today || 0)}</span> &bull; CD: <span style={{ color: Number(vals.cd_growth_today || 0) < 0 ? '#dc2626' : '#059669' }}>₹{fmt(vals.cd_growth_today || 0)}</span>
+              </div>
+            </div>
+            <div style={{ background: '#f8fafc', border: '1px solid #e2e8f0', borderRadius: 8, padding: '8px 12px' }}>
+              <small style={{ color: '#64748b', fontSize: 11, fontWeight: 600 }}>TD Growth Today</small>
+              <div style={{ fontSize: 14, fontWeight: 800, color: Number(vals.td_growth_today || 0) < 0 ? '#dc2626' : '#059669' }}>
+                ₹{fmt(vals.td_growth_today || 0)}
+              </div>
+            </div>
+            {(totSancCnt > 0 || totSancAmt > 0) && (
+              <div style={{ background: '#f8fafc', border: '1px solid #e2e8f0', borderRadius: 8, padding: '8px 12px' }}>
+                <small style={{ color: '#64748b', fontSize: 11, fontWeight: 600 }}>Branch Sanctions</small>
+                <div style={{ fontSize: 13, fontWeight: 700, color: '#1e293b' }}>
+                  {totSancCnt} accts &bull; ₹{fmt(totSancAmt)}
+                </div>
+              </div>
+            )}
+            {(totLpcCnt > 0 || totLpcAmt > 0) && (
+              <div style={{ background: '#f8fafc', border: '1px solid #e2e8f0', borderRadius: 8, padding: '8px 12px' }}>
+                <small style={{ color: '#64748b', fontSize: 11, fontWeight: 600 }}>LPC Forwarded</small>
+                <div style={{ fontSize: 13, fontWeight: 700, color: '#0284c7' }}>
+                  {totLpcCnt} cases &bull; ₹{fmt(totLpcAmt)}
+                </div>
+              </div>
+            )}
+            {(totSmaCnt > 0 || totSmaAmt > 0) && (
+              <div style={{ background: '#f8fafc', border: '1px solid #e2e8f0', borderRadius: 8, padding: '8px 12px' }}>
+                <small style={{ color: '#64748b', fontSize: 11, fontWeight: 600 }}>SMA Eliminations</small>
+                <div style={{ fontSize: 13, fontWeight: 700, color: '#059669' }}>
+                  {totSmaCnt} accts &bull; ₹{fmt(totSmaAmt)}
+                </div>
+              </div>
+            )}
+          </div>
+
+          {vals.notes && (
+            <div
+              style={{
+                background: '#f8fafc',
+                border: '1px solid #e2e8f0',
+                borderRadius: 8,
+                padding: '9px 12px',
+                fontSize: 12,
+                color: '#475569',
+                marginBottom: 16,
+              }}
+            >
+              <b>Notes / Explanation:</b> &ldquo;{vals.notes}&rdquo;
+            </div>
+          )}
+
+          <p style={{ fontSize: 12, color: '#64748b', margin: '0 0 16px', lineHeight: 1.5 }}>
+            ✓ Your report is officially logged on the regional server. Prior revisions are safely archived for audit compliance.
+          </p>
+
+          {/* Action Buttons */}
+          <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
+            <button
+              type="button"
+              onClick={() => {
+                const solToOpen = submissionIntimation.sol;
+                setSubmissionIntimation(null);
+                openReviewImageModal(solToOpen, '', 'submitted');
+              }}
+              style={{
+                width: '100%',
+                padding: '11px 16px',
+                fontSize: 13,
+                fontWeight: 800,
+                background: '#059669',
+                borderColor: '#059669',
+                color: '#ffffff',
+                borderRadius: 8,
+                cursor: 'pointer',
+                display: 'inline-flex',
+                alignItems: 'center',
+                justifyContent: 'center',
+                gap: 8,
+              }}
+            >
+              <Sparkles size={16} /> View / Share Performance Scorecard Image
+            </button>
+            <button
+              type="button"
+              className="secondary"
+              onClick={() => {
+                setSubmissionIntimation(null);
+              }}
+              style={{
+                width: '100%',
+                padding: '9px 16px',
+                fontSize: 13,
+                fontWeight: 600,
+                color: '#475569',
+                borderRadius: 8,
+                cursor: 'pointer',
+              }}
+            >
+              Close Intimation
+            </button>
+          </div>
+        </div>
+      </div>
+    </div>
+  );
+})()}
 </div><footer>Indian Overseas Bank · Dindigul regional reporting <span>All reporting times are IST</span></footer></main></div>;
 }
